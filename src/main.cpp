@@ -1,40 +1,92 @@
 #include <Arduino.h>
-
 #include <NimBLEDevice.h>
-
 #include <EncButton.h>
+#include "esp32-hal-log.h"
+/**
+    log_e – ошибка (минимальная)
+    log_w - предупреждение
+    log_i - Информация
+    log_d - отладка
+    log_v – многословный (самый высокий)
+    Example:  log_d("MY DEV", "Hello %s", "world!!!");
+ */
 
-#define LED_SYSTEM          25//5
-#define LedSysInit()        pinMode(LED_SYSTEM, OUTPUT);
-#define LedSysOn()          digitalWrite(LED_SYSTEM,LOW)
-#define LedSysOff()         digitalWrite(LED_SYSTEM,HIGH)
+#define LED_SYSTEM 25 // 5
+#define LedSysInit() pinMode(LED_SYSTEM, OUTPUT);
+#define LedSysOn() digitalWrite(LED_SYSTEM, HIGH)
+#define LedSysOff() digitalWrite(LED_SYSTEM, LOW)
 
-EncButton<EB_TICK, 19> BtnUp;        // просто кнопка <KEY>
-EncButton<EB_TICK, 18> BtnDwn;        // просто кнопка <KEY>
-EncButton<EB_TICK, 32> BtnLft;        // просто кнопка <KEY>
-EncButton<EB_TICK, 33> BtnRght;        // просто кнопка <KEY>
+enum LedSysBlinkStatus
+{
+    ledSt_CONNECTED,
+    ledSt_CONNECTED_BAT_LOW,
+    ledSt_DISCONNECTED,
+    ledSt_DISCONNECTED_BAT_LOW,
+    ledSt_SEARCH_CONTROLLER
+};
 
-typedef struct 
+#define POWER_BTN_PIN       GPIO_NUM_4
+#define UP_BTN_PIN          GPIO_NUM_19
+#define DOWN_BTN_PIN        GPIO_NUM_18
+#define LEFT_BTN_PIN        GPIO_NUM_32
+#define RIGHT_BTN_PIN       GPIO_NUM_33
+
+#define BUTTON_PIN_BITMASK  0x200000000 // 2^33 in hex
+
+RTC_DATA_ATTR int bootCount = 0;
+
+EncButton<EB_TICK, POWER_BTN_PIN> BtnPwrLink;   // просто кнопка <KEY>
+EncButton<EB_TICK, UP_BTN_PIN> BtnUp;           // просто кнопка <KEY>
+EncButton<EB_TICK, DOWN_BTN_PIN> BtnDwn;        // просто кнопка <KEY>
+EncButton<EB_TICK, LEFT_BTN_PIN> BtnLft;        // просто кнопка <KEY>
+EncButton<EB_TICK, RIGHT_BTN_PIN> BtnRght;      // просто кнопка <KEY>
+
+typedef struct
 {
     bool DevConnected;
+    bool DevSearch;
     String LinkDevAddres;
+    uint8_t LedSysCurStatus;
     uint8_t PortNumTitleSensor;
     uint8_t PortNumDetectSensor;
     uint8_t DistanceCurrentValue;
 
 } WeDoHub_Client_t;
 
-WeDoHub_Client_t HubClient = { false, "", 0, 0, 0 };
+WeDoHub_Client_t HubClient = {false, false, "", ledSt_DISCONNECTED, 0, 0, 0};
 
-#define LEGO_HUB_NAME_STR "LPF2 Smart Hub"
-// String LinkDevAddres = "";
-String LinkDevAddres = "";
+#define LEGO_HUB_NAME_STR   "LPF2 Smart Hub"
+
+
 
 // Удаленный сервис, к которому мы хотим подключиться.
 static NimBLEUUID LEGO_WeDo_advertisingUUID("00001523-1212-efde-1523-785feabcd123");
-
+// static NimBLEUUID LEGO_LedButton_advertisingUUID("00001523-1212-efde-1523-785feabcd123");
+// Сервис и характеристика по адреу хаба, где данные о уровне заряда батареи
 static NimBLEUUID LEGO_HUB_BatteryServiceUUID("180F");
 static NimBLEUUID LEGO_HUB_BatteryChUUID("2A19");
+
+// Характеристика интересующего нас удаленного сервиса.
+static NimBLEUUID LEGO("00004f0e-1212-efde-1523-785feabcd123");
+static NimBLEUUID LEGOOutput("00001565-1212-efde-1523-785feabcd123");
+static NimBLEUUID LEGOSensor("00001560-1212-efde-1523-785feabcd123");
+static NimBLEUUID LEGOInput("00001563-1212-efde-1523-785feabcd123");
+static NimBLEUUID LEGOButton("00001526-1212-efde-1523-785feabcd123");
+static NimBLEUUID LEGOPorts("00001527-1212-efde-1523-785feabcd123");
+
+// Глобальные переменные
+NimBLERemoteService* pAdvertisingService = nullptr;
+NimBLERemoteService* pLEGO = nullptr;
+NimBLERemoteCharacteristic* pLEGOOutput = nullptr;
+NimBLERemoteCharacteristic* pLEGOSensor = nullptr;
+NimBLERemoteCharacteristic* pLEGOInput = nullptr;
+NimBLERemoteCharacteristic* pLEGOButton = nullptr;
+NimBLERemoteCharacteristic* pLEGOPorts = nullptr;
+
+// String LinkDevAddres = "";
+String LinkDevAddres = "";
+
+
 
 void scanEndedCB(NimBLEScanResults results);
 
@@ -42,6 +94,25 @@ static NimBLEAdvertisedDevice *advDevice;
 
 static bool doConnect = false;
 static uint32_t scanTime = 0; /** 0 = scan forever */
+
+/** FreeRTOS Defines **/
+xQueueHandle BtnActQueue;
+
+enum MotorSpeedDir
+{
+    MSD_STOP = 0,
+    MSD_SET_LEFT = -65,
+    MSD_SET_LEFT_DOUBLE = -100,
+    MSD_SET_RIGHT = 65,
+    MSD_SET_RIGHT_DOUBLE = 100
+};
+
+typedef struct 
+{
+    uint8_t driveNum;
+    int rotSpeedDir;
+}
+MotorTransCmd_t;
 
 static void Task_Led(void *pvParameters);
 static void Task_Main(void *pvParameters);
@@ -61,6 +132,9 @@ class ClientCallbacks : public NimBLEClientCallbacks
          *  Min interval: 120 * 1.25ms = 150, Max interval: 120 * 1.25ms = 150, 0 latency, 60 * 10ms = 600ms timeout
          */
         pClient->updateConnParams(120, 120, 0, 60);
+
+        HubClient.DevConnected = true;
+        HubClient.LedSysCurStatus = ledSt_CONNECTED;
     };
 
     void onDisconnect(NimBLEClient *pClient)
@@ -68,6 +142,9 @@ class ClientCallbacks : public NimBLEClientCallbacks
         Serial.print(pClient->getPeerAddress().toString().c_str());
         Serial.println(" Disconnected - Starting scan");
         NimBLEDevice::getScan()->start(scanTime, scanEndedCB);
+
+        HubClient.DevConnected = false;
+        HubClient.LedSysCurStatus = ledSt_DISCONNECTED;
     };
 
     /** Called when the peripheral requests a change to the connection parameters.
@@ -175,13 +252,18 @@ bool connectToServer()
 {
     NimBLEClient *pClient = nullptr;
 
-    /** Check if we have a client we should reuse first **/
+    // /** Делаем небольшую паузу перед подключением - сервер только запущен,
+    //  * сразу возможны сбои при подключении **/
+    // vTaskDelay(3000);
+
+    /** Проверьте, есть ли у нас клиент, который мы должны повторно использовать в первую очередь. **/
     if (NimBLEDevice::getClientListSize())
     {
-        /** Special case when we already know this device, we send false as the
-         *  second argument in connect() to prevent refreshing the service database.
-         *  This saves considerable time and power.
+        /** Особый случай, когда мы уже знаем это устройство, мы отправляем false в качестве
+         * второй аргумент в connect() для предотвращения обновления базы данных сервиса.
+         * Это значительно экономит время и энергию.
          */
+
         pClient = NimBLEDevice::getClientByPeerAddress(advDevice->getAddress());
         if (pClient)
         {
@@ -192,8 +274,8 @@ bool connectToServer()
             }
             Serial.println("Reconnected client");
         }
-        /** We don't already have a client that knows this device,
-         *  we will check for a client that is disconnected that we can use.
+        /** У нас еще нет клиента, который знает это устройство,
+         * мы проверим отключенный клиент, который мы можем использовать.
          */
         else
         {
@@ -201,9 +283,14 @@ bool connectToServer()
         }
     }
 
-    /** No client to reuse? Create a new one. */
+    /** Нет клиента для повторного использования? Создайте новый. */
     if (!pClient)
     {
+        Serial.println("[1] Wait stable connection...");
+        /** Делаем небольшую паузу перед первым подключением - сервер только запущен,
+         * сразу возможны сбои при подключении (зависает звуковой сигнал хаба)**/
+        delay(2000);
+
         if (NimBLEDevice::getClientListSize() >= NIMBLE_MAX_CONNECTIONS)
         {
             Serial.println("Max clients reached - no more connections available");
@@ -247,7 +334,7 @@ bool connectToServer()
     Serial.print("RSSI: ");
     Serial.println(pClient->getRssi());
 
-    delay(2000);
+    // delay(2000);
 
     /** Now we can read/write/subscribe the charateristics of the services we are interested in */
     NimBLERemoteService *pSvc = nullptr;
@@ -279,14 +366,172 @@ bool connectToServer()
         return false;
     }
 
+    pAdvertisingService = pClient->getService(LEGO_WeDo_advertisingUUID);
+    if(pAdvertisingService == nullptr) {     /** убедитесь, что это не нольl */
+        Serial.print("Failed to find our service UUID: ");
+        Serial.println(LEGO_WeDo_advertisingUUID.toString().c_str());
+        pClient->disconnect();
+        return false;
+    }
+    Serial.print("Found our service: ");
+    Serial.println(LEGO_WeDo_advertisingUUID.toString().c_str());
+    
+    pLEGOPorts = pAdvertisingService->getCharacteristic(LEGOPorts);
+    if(pLEGOPorts == nullptr) {     /** убедитесь, что это не нольl */
+        Serial.print("Failed to find our service UUID(LEGOPorts): ");
+        Serial.println(LEGOPorts.toString().c_str());
+        pClient->disconnect();
+        return false;
+    }
+    Serial.print("Found our service: ");
+    Serial.println(LEGOPorts.toString().c_str());
+
+
+    pLEGO = pClient->getService(LEGO);
+    if(pLEGO == nullptr) {     /** убедитесь, что это не нольl */
+        Serial.print("Failed to find our service UUID: ");
+        Serial.println(LEGO.toString().c_str());
+        pClient->disconnect();
+        return false;
+    }
+    Serial.print("Found our service: ");
+    Serial.println(LEGO.toString().c_str());
+
+    pLEGOOutput = pLEGO->getCharacteristic(LEGOOutput);
+    if (pLEGOOutput == nullptr) {
+        Serial.print("Failed to find our characteristic UUID: ");
+        Serial.println(LEGOOutput.toString().c_str());
+        pClient->disconnect();
+        return false;
+    }       
+    Serial.print("Found our characteristic: ");
+    Serial.println(LEGOOutput.toString().c_str());
+
+    pLEGOInput = pLEGO->getCharacteristic(LEGOInput);
+    if (pLEGOInput == nullptr) {
+        Serial.print("Failed to find our characteristic UUID: ");
+        Serial.println(LEGOInput.toString().c_str());
+        pClient->disconnect();
+        return false;
+    }
+    Serial.print("Found our characteristic: ");
+    Serial.println(LEGOInput.toString().c_str());
+
+    pLEGOButton = pAdvertisingService->getCharacteristic(LEGOButton);
+    if (pLEGOButton == nullptr) {
+        Serial.print("Failed to find our characteristic UUID: ");
+        Serial.println(LEGOButton.toString().c_str());
+        pClient->disconnect();
+        return false;
+    }
+    Serial.print("Found our characteristic: ");
+    Serial.println(LEGOButton.toString().c_str());
+
+    if(pLEGOButton->canNotify()){
+        if(!pLEGOButton->subscribe(true, notifyCB)) {
+            /** Disconnect if subscribe failed */
+            pClient->disconnect();
+            return false;
+        }
+        Serial.println("Subscribe to LEGOButton OK");
+    }
+
+    if(pLEGOPorts->canNotify()) {
+        //if(!pChr->registerForNotify(notifyCB)) {
+        if(!pLEGOPorts->subscribe(true, notifyCB)) {
+            /** Disconnect if subscribe failed */
+            pClient->disconnect();
+            return false;
+        }
+        Serial.println("Subscribe pLEGOPorts Notify");
+    }
+
+
     Serial.println("Done with this device!");
     return true;
 }
 
+/*
+Method to print the reason by which ESP32
+has been awaken from sleep
+*/
+void print_wakeup_reason()
+{
+    esp_sleep_wakeup_cause_t wakeup_reason;
+
+    wakeup_reason = esp_sleep_get_wakeup_cause();
+
+    switch (wakeup_reason)
+    {
+    case ESP_SLEEP_WAKEUP_EXT0:
+        log_i("Wakeup caused by external signal using RTC_IO");
+        break;
+    case ESP_SLEEP_WAKEUP_EXT1:
+        log_i("Wakeup caused by external signal using RTC_CNTL");
+        break;
+    case ESP_SLEEP_WAKEUP_TIMER:
+        log_i("Wakeup caused by timer");
+        break;
+    case ESP_SLEEP_WAKEUP_TOUCHPAD:
+        log_i("Wakeup caused by touchpad");
+        break;
+    case ESP_SLEEP_WAKEUP_ULP:
+        log_i("Wakeup caused by ULP program");
+        break;
+    default:
+        log_i("Wakeup was not caused by deep sleep: %d\n", wakeup_reason);
+        break;
+    }
+}
+
+void writeMotor(uint8_t wedo_port,int wedo_speed)
+{
+    //From http://www.ev3dev.org/docs/tutorials/controlling-wedo2-motor/
+    //conversion from int (both pos and neg) to unsigned 8 bit int
+    uint8_t speed_byte = wedo_speed;
+    uint8_t command[] = {wedo_port, 0x01, 0x01, speed_byte};
+    pLEGOOutput->writeValue(command,sizeof(command));
+}
+
+
 void setup()
 {
+    bool PowerOnEnable = false;
+
     Serial.begin(115200);
-    Serial.println("Starting NimBLE Client");
+    log_i("WakeUp Power button");
+
+    pinMode(POWER_BTN_PIN, INPUT_PULLUP);
+    esp_sleep_enable_ext0_wakeup(POWER_BTN_PIN, 0); // 1 = High, 0 = Low
+
+    while (digitalRead(POWER_BTN_PIN) == LOW)
+    {
+        if (millis() >= 2000)
+        {
+            log_i("Hold power button");
+            PowerOnEnable = true;
+            break;
+        }
+    }
+
+    if (!PowerOnEnable)
+    {
+        log_i("Going to sleep now");
+        vTaskDelay(1000);
+        esp_deep_sleep_start();
+        log_i("This will never be printed");
+    }
+
+    log_i("Starting NimBLE Client, begin init...");
+    // //Increment boot number and print it every reboot
+    // ++bootCount;
+    // log_i("Boot number: %d",bootCount);
+
+    // //Print the wakeup reason for ESP32
+    // print_wakeup_reason();
+
+    // esp_sleep_enable_ext0_wakeup(POWER_BTN_PIN, 0); //1 = High, 0 = Low
+
     /** Initialize NimBLE, no device name spcified as we are not advertising */
     NimBLEDevice::init("");
 
@@ -335,50 +580,43 @@ void setup()
      */
     pScan->start(scanTime, scanEndedCB);
 
-    xTaskCreatePinnedToCore(Task_Led, "Task_Led", 1024, NULL, 4, NULL, ARDUINO_RUNNING_CORE);
-    xTaskCreatePinnedToCore(Task_Main, "Task_Main", 8192, (void*)&HubClient, 3, NULL, ARDUINO_RUNNING_CORE);
-    xTaskCreatePinnedToCore(Task_Buttons, "Task_Buttons", 1024, NULL, 3, NULL, ARDUINO_RUNNING_CORE);
+    BtnActQueue = xQueueCreate(4, sizeof (MotorTransCmd_t));
+    if (BtnActQueue == NULL)  // Queue not created 
+    {    
+        log_i("BtnActQueue Not Created!!!");
+    }else{
+        log_i("BtnActQueue Create OK");
+        xTaskCreatePinnedToCore(Task_Led, "Task_Led", 2048, (void *)&HubClient, 5, NULL, ARDUINO_RUNNING_CORE);
+        xTaskCreatePinnedToCore(Task_Main, "Task_Main", 8192, (void *)&HubClient, 4, NULL, ARDUINO_RUNNING_CORE);
+        xTaskCreatePinnedToCore(Task_Buttons, "Task_Buttons", 4092, NULL, 3, NULL, ARDUINO_RUNNING_CORE);
+    }
 }
 
 void loop()
 {
-    // /** Loop here until we find a device we want to connect to */
-    // while (!doConnect)
-    // {
-    //     delay(1);
-    // }
-
-    // doConnect = false;
-
-    // /** Found a device we want to connect to, do it now */
-    // if (connectToServer())
-    // {
-    //     Serial.println("Success! we should now be getting notifications!");
-    // }
-    // else
-    // {
-    //     Serial.println("Failed to connect, starting scan");
-    //     NimBLEDevice::getScan()->start(scanTime, scanEndedCB);
-    // }
-
 
 }
-
 
 // FreeRTOS Task's
 static void Task_Main(void *pvParameters)
 {
     // (void)pvParameters;
 
-    WeDoHub_Client_t *devParam = (WeDoHub_Client_t*) pvParameters;
+    WeDoHub_Client_t *devParam = (WeDoHub_Client_t *)pvParameters;
+    MotorTransCmd_t qMotorSendCmd;
 
-    Serial.println("Run Task_Main");
+    log_i("Run Task_Main");
 
-    for(;;)
+    for (;;)
     {
         /** Loop here until we find a device we want to connect to */
         while (!doConnect)
         {
+            if (xQueueReceive(BtnActQueue, &qMotorSendCmd, 10) == pdPASS)
+            {
+                log_i("Queue recive: Motor = %d, SpdDir = %d", qMotorSendCmd.driveNum, qMotorSendCmd.rotSpeedDir);
+                writeMotor(qMotorSendCmd.driveNum, qMotorSendCmd.rotSpeedDir);
+            }
             vTaskDelay(10);
         }
 
@@ -387,33 +625,65 @@ static void Task_Main(void *pvParameters)
         /** Found a device we want to connect to, do it now */
         if (connectToServer())
         {
-            Serial.println("Success! we should now be getting notifications!");
+            log_i("Success! we should now be getting notifications!");
+            devParam->DevConnected = true;
+            devParam->LedSysCurStatus = ledSt_CONNECTED;
         }
         else
         {
-            Serial.println("Failed to connect, starting scan");
+            log_i("Failed to connect, starting scan");
             NimBLEDevice::getScan()->start(scanTime, scanEndedCB);
+            devParam->DevConnected = false;
+            devParam->LedSysCurStatus = ledSt_DISCONNECTED;
         }
 
-        vTaskDelay(100);
+        vTaskDelay(10);
     }
 }
 
 static void Task_Led(void *pvParameters)
 {
-    (void)pvParameters;
+    // (void)pvParameters;
 
+    WeDoHub_Client_t *devParam = (WeDoHub_Client_t *)pvParameters;
+
+    bool ConStatusFlag = false;
     LedSysInit();
 
-    Serial.println("Run Task_Led");
+    log_i("Run Task_Led");
 
-    for(;;)
+    for (;;)
     {
-        LedSysOn();
-        vTaskDelay(500);
+        switch (devParam->LedSysCurStatus)
+        {
+            case ledSt_CONNECTED:
+                if (!ConStatusFlag)
+                {
+                    LedSysOn();
+                    ~ConStatusFlag;
+                }
+                /** Обязательная задержка для работы других задач
+                 * (никакие условия в это задачи не выполняются) **/
+                vTaskDelay(250);
+                break;
 
-        LedSysOff();
-        vTaskDelay(500);
+            case ledSt_DISCONNECTED:
+                LedSysOn();
+                vTaskDelay(500);
+
+                LedSysOff();
+                vTaskDelay(500);
+
+                if (ConStatusFlag)
+                    ~ConStatusFlag;
+                break;
+
+            default:
+                /** Обязательная задержка для работы других задач
+                 * (никакие условия в это задачи не выполняются) **/
+                vTaskDelay(250);
+                break;
+            }
     }
 }
 
@@ -421,25 +691,115 @@ static void Task_Buttons(void *pvParameters)
 {
     (void)pvParameters;
 
+    MotorTransCmd_t qMotorSendCmd;
+    // memset(qBtnAction, 0, sizeof(qBtnAction));
+    BtnPwrLink.setHoldTimeout(2000);
+
     BtnUp.setHoldTimeout(1000);
     BtnDwn.setHoldTimeout(1000);
     BtnLft.setHoldTimeout(1000);
     BtnRght.setHoldTimeout(1000);
 
-    Serial.println("Run Task_Buttons");
+    log_i("Run Task_Buttons");
 
-    for(;;)
+    for (;;)
     {
+        BtnPwrLink.tick();
         BtnUp.tick();
         BtnDwn.tick();
         BtnLft.tick();
         BtnRght.tick();
 
-        vTaskDelay(10);
+        // if (BtnPwrLink.click())
+        //     log_i("Click BtnPwrLink");
+        // if (BtnUp.click())
+        //     log_i("Click BtnUp");
+        // if (BtnDwn.click())
+        //     log_i("Click BtnDwn");
+        // if (BtnLft.click())
+        //     log_i("Click BtnLft");
+        // if (BtnRght.click())
+        //     log_i("Click BtnRght");
 
-        if (BtnUp.click()) Serial.println("Click BtnUp");
-        if (BtnDwn.click()) Serial.println("Click BtnDwn");
-        if (BtnLft.click()) Serial.println("Click BtnLft");
-        if (BtnRght.click()) Serial.println("Click BtnRght");
+        // if (BtnUp.getState())
+        //     log_i("isHolded BtnUp");
+
+        // if (BtnDwn.isHolded())
+        //     log_i("isHolded BtnDwn");
+
+        /** Send Queue**/
+        // Up/Down Buttons commands
+        if (BtnUp.press()){ 
+            qMotorSendCmd.driveNum = 1;
+            qMotorSendCmd.rotSpeedDir = MSD_SET_RIGHT;
+            xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
+        }else
+        if(BtnUp.held()){
+            qMotorSendCmd.driveNum = 1;
+            qMotorSendCmd.rotSpeedDir = MSD_SET_RIGHT_DOUBLE;
+            xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
+        }else
+        if (BtnDwn.press()){ 
+            qMotorSendCmd.driveNum = 1;
+            qMotorSendCmd.rotSpeedDir = MSD_SET_LEFT;
+            xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
+        }else
+        if(BtnDwn.held()){
+            qMotorSendCmd.driveNum = 1;
+            qMotorSendCmd.rotSpeedDir = MSD_SET_LEFT_DOUBLE;
+            xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
+        }else
+        if(
+            (BtnUp.release() && !BtnDwn.state())
+            ||
+            (BtnDwn.release() && !BtnUp.state())
+        ){
+            qMotorSendCmd.driveNum = 1;
+            qMotorSendCmd.rotSpeedDir = MSD_STOP;
+            xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
+        }
+        
+        // Right/Left Buttons commands
+        if (BtnRght.press()){ 
+            qMotorSendCmd.driveNum = 2;
+            qMotorSendCmd.rotSpeedDir = MSD_SET_RIGHT;
+            xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
+        }else
+        if(BtnRght.held()){
+            qMotorSendCmd.driveNum = 2;
+            qMotorSendCmd.rotSpeedDir = MSD_SET_RIGHT_DOUBLE;
+            xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
+        }else
+        if (BtnLft.press()){ 
+            qMotorSendCmd.driveNum = 2;
+            qMotorSendCmd.rotSpeedDir = MSD_SET_LEFT;
+            xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
+        }else
+        if(BtnLft.held()){
+            qMotorSendCmd.driveNum = 2;
+            qMotorSendCmd.rotSpeedDir = MSD_SET_LEFT_DOUBLE;
+            xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
+        }else
+        if(
+            (BtnRght.release() && !BtnLft.state())
+            ||
+            (BtnLft.release() && !BtnRght.state())
+        ){
+            qMotorSendCmd.driveNum = 2;
+            qMotorSendCmd.rotSpeedDir = MSD_STOP;
+            xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
+        }
+
+        if (BtnPwrLink.held())
+        {
+            log_i("Held BtnPwrLink");
+            // Go to sleep now
+            log_i("Going to sleep now");
+            vTaskDelay(1000);
+            esp_deep_sleep_start();
+        }
+
+        
+        vTaskDelay(10);
     }
 }
