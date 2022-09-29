@@ -15,8 +15,12 @@ typedef struct
     uint8_t PortNumTitleSensor;
     uint8_t PortNumDetectSensor;
     uint8_t DistanceCurrentValue;
+    bool DriveOneEnabled;
+    bool DriveTwoEnabled;
 
 } WeDoHub_Client_t;
+
+#define WEDOHUB_CLIENT_SET_DEFAULT  {false, false, "", ledSt_DISCONNECTED, 0, 0, 0, false, false}
 
 enum MotorSpeedDir
 {
@@ -89,5 +93,9 @@ bool l2fp_SetClientData(WeDoHub_Client_t *dtClient);
 bool l2fp_isMainService(NimBLEAdvertisedDevice *advertisedDevice);
 bool l2fp_ConnectToHub(NimBLEClient *pClient);
 bool l2fp_WriteMotorCommand(uint8_t wedo_port,int wedo_speed);
+bool l2fp_WriteIndexColor(uint8_t color);
+bool l2fp_WriteRGB(uint8_t red, uint8_t green, uint8_t blue);
+bool l2fp_SetTiltSensor(uint8_t port);
+bool l2fp_SetDetectSensor(uint8_t port);
 
 #endif /*__LPF2_SMART_HUB__*/

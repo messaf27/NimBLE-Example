@@ -85,6 +85,8 @@ uint8_t parseDigit_0_to_10(uint8_t *pData)
     return 0;                                 
 }
 
+
+/////////////////////////////////////////////////////////////////////////////////
 bool l2fp_SetClientData(WeDoHub_Client_t *dtClient)
 {
     if(dtClient == NULL)
@@ -110,7 +112,8 @@ void l2fp_notifyCB(NimBLERemoteCharacteristic *pRemoteCharacteristic, uint8_t *p
     if(pRemoteCharacteristic->getUUID() == LEGOButton)
     {
         log_i("Hub Button: %s", (pData[0] == 1) ? "ON" : "OFF");
-        hubClientData->LedSysCurStatus = ledSt_SEARCH_CONTROLLER;
+        if(pData[0] == 1)
+            hubClientData->LedSysCurStatus = ledSt_SEARCH_CONTROLLER;
     }else 
     if(pRemoteCharacteristic->getUUID() == LEGOSensor){
         uint8_t SensOnCurrPort = pData[1];
@@ -122,51 +125,67 @@ void l2fp_notifyCB(NimBLERemoteCharacteristic *pRemoteCharacteristic, uint8_t *p
             
                 if(SensOnCurrPort == hubClientData->PortNumDetectSensor){
                     hubClientData->DistanceCurrentValue = parseDigit_0_to_10(pData);
-                    log_i("Distance: %d [port %d]\r\n", hubClientData->DistanceCurrentValue, hubClientData->PortNumDetectSensor);
+                    log_i("Distance: %d [port %d]", hubClientData->DistanceCurrentValue, hubClientData->PortNumDetectSensor);
                 }else 
                 if(SensOnCurrPort == hubClientData->PortNumTitleSensor){
-                    log_i("TitleSensor data: [");
-                    for (int i = 0; i < length; i++){
-                        log_i("%02x", pData[i]);
-                    }
-                    log_i("] (Size: %d, port: %d)", length, SensOnCurrPort);
+                    // log_i("TitleSensor data: [");
+                    // for (int i = 0; i < length; i++){
+                    //     log_i("%02x", pData[i]);
+                    // }
+                    // log_i("] (Size: %d, port: %d)", length, SensOnCurrPort);
                 } 
-                break;
+            break;
 
             case PORT_RGB_LED:
                 log_i("Led color set to: %s\r\n", getLedColorStr(pData));
-                break;  
+            break;  
 
             default:
                 log_i("Undefined port!!!");
-                break;
+            break;
         }
     }else
     if(pRemoteCharacteristic->getUUID() == LEGOPorts){
         uint8_t changePort = pData[0];
         if(pData[1] == 0){
             log_i("Port %d disconnected", changePort);
+
             if(hubClientData->PortNumDetectSensor == changePort)
                 hubClientData->PortNumDetectSensor = 0;
-
+            else
             if(hubClientData->PortNumTitleSensor == changePort)
                 hubClientData->PortNumTitleSensor = 0;
+            else
+            if(hubClientData->DriveOneEnabled && (changePort == 1))
+                hubClientData->DriveOneEnabled = false;    
+            else
+            if(hubClientData->DriveTwoEnabled && (changePort == 2))
+                hubClientData->DriveTwoEnabled = false;        
 
         }else if(pData[1] == 1){
-            switch(pData[3]){
+            
+            switch(pData[3])
+            {
                 case ID_MOTOR: log_i("Motor connected on port %d", changePort);
-                    break;
+
+                if(changePort == 1)
+                    hubClientData->DriveOneEnabled = true;
+                else 
+                if(changePort == 2)   
+                    hubClientData->DriveTwoEnabled = true;
+
+                break;
 
                 case ID_DETECT_SENSOR: log_i("DetectSensor connected on port %d", changePort);
                     hubClientData->PortNumDetectSensor = changePort;
-                    break;
+                break;
 
                 case ID_TILT_SENSOR: log_i("TitleSensor connected on port %d", changePort);
                     hubClientData->PortNumTitleSensor  = changePort;
                     break;
 
                 default: 
-                    break;
+                break;
             }
         }
     }
@@ -278,6 +297,22 @@ bool l2fp_ConnectToHub(NimBLEClient *pClient)
         log_i("Subscribe pLEGOPorts Notify");
     }
 
+    // Init notify Sensors
+    // Read the value of the characteristic.
+    pLEGOSensor = pLEGO->getCharacteristic(LEGOSensor);
+    if (pLEGOSensor == nullptr) {
+        log_i("Failed to find our characteristic UUID: %s", LEGOSensor.toString().c_str());
+        return false;
+    }
+    log_i("Found our characteristic: %s", LEGOSensor.toString().c_str());
+
+    if(pLEGOSensor->canNotify()) {
+        if(!pLEGOSensor->subscribe(true, l2fp_notifyCB)) {
+            return false;
+        }
+        log_i("Subscribe Sensor Notify");
+    }
+
 
     log_i("Done with this device!");
     return true;
@@ -290,4 +325,29 @@ bool l2fp_WriteMotorCommand(uint8_t wedo_port,int wedo_speed)
     uint8_t speed_byte = wedo_speed;
     uint8_t command[] = {wedo_port, 0x01, 0x01, speed_byte};
     return pLEGOOutput->writeValue(command,sizeof(command));
+}
+
+bool l2fp_WriteIndexColor(uint8_t color)
+{
+    //From http://ofalcao.pt/blog/2016/wedo-2-0-colors-with-python
+    uint8_t command[] = {0x06, 0x04, 0x01, color};
+    return pLEGOOutput->writeValue(command,sizeof(command));
+}
+
+bool l2fp_WriteRGB(uint8_t red, uint8_t green, uint8_t blue)
+{
+    uint8_t command[] = {0x06, 0x04 ,0x03, red,green,blue};
+    return pLEGOOutput->writeValue(command,sizeof(command));
+}
+
+bool l2fp_SetTiltSensor(uint8_t port)
+{
+  uint8_t command[] = {0x01, 0x02, port, ID_TILT_SENSOR, 0, 0x01, 0x00, 0x00, 0x00, TILT_SENSOR_MODE_TILT, 0x01};
+  return pLEGOInput->writeValue(command,sizeof(command));
+}
+
+bool l2fp_SetDetectSensor(uint8_t port)
+{
+  uint8_t command[] = {0x01, 0x02, port, ID_DETECT_SENSOR, 0, 0x01, 0x00, 0x00, 0x00, MOTION_SENSOR_MODE_DETECT, 0x01};
+  return pLEGOInput->writeValue(command,sizeof(command));
 }

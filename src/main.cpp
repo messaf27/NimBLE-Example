@@ -35,7 +35,7 @@ EncButton<EB_TICK, DOWN_BTN_PIN>    BtnDwn;        // просто кнопка 
 EncButton<EB_TICK, LEFT_BTN_PIN>    BtnLft;        // просто кнопка <KEY>
 EncButton<EB_TICK, RIGHT_BTN_PIN>   BtnRght;      // просто кнопка <KEY>
 
-WeDoHub_Client_t HubClient = {false, false, "", ledSt_DISCONNECTED, 0, 0, 0};
+WeDoHub_Client_t HubClient = WEDOHUB_CLIENT_SET_DEFAULT; //{false, false, "", ledSt_DISCONNECTED, 0, 0, 0, false, false};
 
 void scanEndedCB(NimBLEScanResults results);
 
@@ -159,7 +159,6 @@ class AdvertisedDeviceCallbacks : public NimBLEAdvertisedDeviceCallbacks
     };
 };
 
-
 /** Callback to process the results of the last scan or restart it */
 void scanEndedCB(NimBLEScanResults results)
 {
@@ -278,7 +277,7 @@ void setup()
         log_i("This will never be printed");
     }
 
-    log_i("Starting NimBLE Client, begin init...");
+    log_i("Starting NimBLE Client, begin init... (CoreID: %d)", xPortGetCoreID());
 
     l2fp_SetClientData(&HubClient);
 
@@ -338,7 +337,7 @@ void setup()
         log_i("BtnActQueue Create OK");
         xTaskCreatePinnedToCore(Task_Led, "Task_Led", 2048, (void *)&HubClient, 5, NULL, ARDUINO_RUNNING_CORE);
         xTaskCreatePinnedToCore(Task_Main, "Task_Main", 8192, (void *)&HubClient, 4, NULL, ARDUINO_RUNNING_CORE);
-        xTaskCreatePinnedToCore(Task_Buttons, "Task_Buttons", 4092, NULL, 3, NULL, ARDUINO_RUNNING_CORE);
+        xTaskCreatePinnedToCore(Task_Buttons, "Task_Buttons", 8192, (void *)&HubClient, 3, NULL, ARDUINO_RUNNING_CORE);
     }
 }
 
@@ -353,8 +352,10 @@ static void Task_Main(void *pvParameters)
     // (void)pvParameters;
     WeDoHub_Client_t *devParam = (WeDoHub_Client_t *)pvParameters;
     MotorTransCmd_t qMotorSendCmd;
+    static TickType_t lstTickCount = 0;
+    bool result = false;
 
-    log_i("Run Task_Main");
+    log_i("Run Task_Main (CoreID: %d)", xPortGetCoreID());
 
     for (;;)
     {
@@ -367,6 +368,22 @@ static void Task_Main(void *pvParameters)
                 l2fp_WriteMotorCommand(qMotorSendCmd.driveNum, qMotorSendCmd.rotSpeedDir);
             }
             vTaskDelay(10);
+
+            if(xTaskGetTickCount() - lstTickCount > 1000)
+            {                
+                if(devParam->PortNumTitleSensor > 0){
+                    result = l2fp_SetTiltSensor(devParam->PortNumTitleSensor);
+                    // log_i("Update TiltSensor (port %d) %s", devParam->PortNumTitleSensor, result?"OK":"FAIL");
+                }
+
+                if(devParam->PortNumDetectSensor > 0){
+                    result = l2fp_SetDetectSensor(devParam->PortNumDetectSensor);
+                    // log_i("Update DetectSensor (port %d) %s", devParam->PortNumDetectSensor, result?"OK":"FAIL");
+                }
+
+                lstTickCount = xTaskGetTickCount();
+            }
+
         }
 
         doConnect = false;
@@ -377,6 +394,7 @@ static void Task_Main(void *pvParameters)
             log_i("Success! we should now be getting notifications!");
             devParam->DevConnected = true;
             devParam->LedSysCurStatus = ledSt_CONNECTED;
+            l2fp_WriteIndexColor(LEGO_COLOR_GREEN);
         }
         else
         {
@@ -393,13 +411,12 @@ static void Task_Main(void *pvParameters)
 static void Task_Led(void *pvParameters)
 {
     // (void)pvParameters;
-
     WeDoHub_Client_t *devParam = (WeDoHub_Client_t *)pvParameters;
 
     bool ConStatusFlag = false;
     LedSysInit();
 
-    log_i("Run Task_Led");
+    log_i("Run Task_Led (CoreID: %d)", xPortGetCoreID());
 
     for (;;)
     {
@@ -445,7 +462,8 @@ static void Task_Led(void *pvParameters)
 
 static void Task_Buttons(void *pvParameters)
 {
-    (void)pvParameters;
+    // (void)pvParameters;
+    WeDoHub_Client_t *devParam = (WeDoHub_Client_t *)pvParameters;
 
     MotorTransCmd_t qMotorSendCmd;
     // memset(qBtnAction, 0, sizeof(qBtnAction));
@@ -456,7 +474,7 @@ static void Task_Buttons(void *pvParameters)
     BtnLft.setHoldTimeout(1000);
     BtnRght.setHoldTimeout(1000);
 
-    log_i("Run Task_Buttons");
+    log_i("Run Task_Buttons (CoreID: %d)", xPortGetCoreID());
 
     for (;;)
     {
@@ -484,66 +502,72 @@ static void Task_Buttons(void *pvParameters)
         //     log_i("isHolded BtnDwn");
 
         /** Send Queue**/
-        // Up/Down Buttons commands
-        if (BtnUp.press()){ 
-            qMotorSendCmd.driveNum = 1;
-            qMotorSendCmd.rotSpeedDir = MSD_SET_RIGHT;
-            xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
-        }else
-        if(BtnUp.held()){
-            qMotorSendCmd.driveNum = 1;
-            qMotorSendCmd.rotSpeedDir = MSD_SET_RIGHT_DOUBLE;
-            xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
-        }else
-        if (BtnDwn.press()){ 
-            qMotorSendCmd.driveNum = 1;
-            qMotorSendCmd.rotSpeedDir = MSD_SET_LEFT;
-            xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
-        }else
-        if(BtnDwn.held()){
-            qMotorSendCmd.driveNum = 1;
-            qMotorSendCmd.rotSpeedDir = MSD_SET_LEFT_DOUBLE;
-            xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
-        }else
-        if(
-            (BtnUp.release() && !BtnDwn.state())
-            ||
-            (BtnDwn.release() && !BtnUp.state())
-        ){
-            qMotorSendCmd.driveNum = 1;
-            qMotorSendCmd.rotSpeedDir = MSD_STOP;
-            xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
+        // Проверяем подключен ли двигатель к порту 1
+        if(devParam->DriveOneEnabled){
+            // Up/Down Buttons commands
+            if (BtnUp.press()){ 
+                qMotorSendCmd.driveNum = 1;
+                qMotorSendCmd.rotSpeedDir = MSD_SET_RIGHT;
+                xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
+            }else
+            if(BtnUp.held()){
+                qMotorSendCmd.driveNum = 1;
+                qMotorSendCmd.rotSpeedDir = MSD_SET_RIGHT_DOUBLE;
+                xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
+            }else
+            if (BtnDwn.press()){ 
+                qMotorSendCmd.driveNum = 1;
+                qMotorSendCmd.rotSpeedDir = MSD_SET_LEFT;
+                xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
+            }else
+            if(BtnDwn.held()){
+                qMotorSendCmd.driveNum = 1;
+                qMotorSendCmd.rotSpeedDir = MSD_SET_LEFT_DOUBLE;
+                xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
+            }else
+            if(
+                (BtnUp.release() && !BtnDwn.state())
+                ||
+                (BtnDwn.release() && !BtnUp.state())
+            ){
+                qMotorSendCmd.driveNum = 1;
+                qMotorSendCmd.rotSpeedDir = MSD_STOP;
+                xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
+            }
         }
-        
-        // Right/Left Buttons commands
-        if (BtnRght.press()){ 
-            qMotorSendCmd.driveNum = 2;
-            qMotorSendCmd.rotSpeedDir = MSD_SET_RIGHT;
-            xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
-        }else
-        if(BtnRght.held()){
-            qMotorSendCmd.driveNum = 2;
-            qMotorSendCmd.rotSpeedDir = MSD_SET_RIGHT_DOUBLE;
-            xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
-        }else
-        if (BtnLft.press()){ 
-            qMotorSendCmd.driveNum = 2;
-            qMotorSendCmd.rotSpeedDir = MSD_SET_LEFT;
-            xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
-        }else
-        if(BtnLft.held()){
-            qMotorSendCmd.driveNum = 2;
-            qMotorSendCmd.rotSpeedDir = MSD_SET_LEFT_DOUBLE;
-            xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
-        }else
-        if(
-            (BtnRght.release() && !BtnLft.state())
-            ||
-            (BtnLft.release() && !BtnRght.state())
-        ){
-            qMotorSendCmd.driveNum = 2;
-            qMotorSendCmd.rotSpeedDir = MSD_STOP;
-            xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
+
+        // Проверяем подключен ли двигатель к порту 2
+        if(devParam->DriveTwoEnabled){
+            // Right/Left Buttons commands
+            if (BtnRght.press()){ 
+                qMotorSendCmd.driveNum = 2;
+                qMotorSendCmd.rotSpeedDir = MSD_SET_RIGHT;
+                xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
+            }else
+            if(BtnRght.held()){
+                qMotorSendCmd.driveNum = 2;
+                qMotorSendCmd.rotSpeedDir = MSD_SET_RIGHT_DOUBLE;
+                xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
+            }else
+            if (BtnLft.press()){ 
+                qMotorSendCmd.driveNum = 2;
+                qMotorSendCmd.rotSpeedDir = MSD_SET_LEFT;
+                xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
+            }else
+            if(BtnLft.held()){
+                qMotorSendCmd.driveNum = 2;
+                qMotorSendCmd.rotSpeedDir = MSD_SET_LEFT_DOUBLE;
+                xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
+            }else
+            if(
+                (BtnRght.release() && !BtnLft.state())
+                ||
+                (BtnLft.release() && !BtnRght.state())
+            ){
+                qMotorSendCmd.driveNum = 2;
+                qMotorSendCmd.rotSpeedDir = MSD_STOP;
+                xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
+            }
         }
 
         if (BtnPwrLink.held())
