@@ -2,6 +2,8 @@
 #include "lpf2_smart_hub.h"
 #include "esp32-hal-log.h"
 
+WeDoHub_Client_t *hubClientData;
+
 // Удаленный сервис, к которому мы хотим подключиться.
 static NimBLEUUID LEGO_WeDo_advertisingUUID("00001523-1212-efde-1523-785feabcd123");
 // static NimBLEUUID LEGO_LedButton_advertisingUUID("00001523-1212-efde-1523-785feabcd123");
@@ -26,17 +28,148 @@ NimBLERemoteCharacteristic* pLEGOInput = nullptr;
 NimBLERemoteCharacteristic* pLEGOButton = nullptr;
 NimBLERemoteCharacteristic* pLEGOPorts = nullptr;
 
-/** Notification / Indication receiving handler callback */
-void notifyCB(NimBLERemoteCharacteristic *pRemoteCharacteristic, uint8_t *pData, size_t length, bool isNotify)
+const char* getLedColorStr(uint8_t *pData){
+    switch(pData[2])
+    {
+        case LEGO_COLOR_BLACK:          return "BLACK";        
+        case LEGO_COLOR_PINK:           return "PINK";         
+        case LEGO_COLOR_PURPLE:         return "PURPLE"; 
+        case LEGO_COLOR_BLUE:           return "BLUE"; 
+        case LEGO_COLOR_CYAN:           return "CYAN"; 
+        case LEGO_COLOR_LIGHTGREEN:     return "LIGHTGREEN";
+        case LEGO_COLOR_GREEN:          return "GREEN";
+        case LEGO_COLOR_YELLOW:         return "YELLOW"; 
+        case LEGO_COLOR_ORANGE:         return "ORANGE"; 
+        case LEGO_COLOR_RED:            return "RED"; 
+        case LEGO_COLOR_WHITE:          return "WHITE"; 
+        default:
+            return "Unknown color!!!";
+    }              
+} 
+
+uint8_t parseDigit_0_to_10(uint8_t *pData)
 {
-    std::string str = (isNotify == true) ? "Notification" : "Indication";
-    str += " from ";
-    /** NimBLEAddress and NimBLEUUID have std::string operators */
-    str += std::string(pRemoteCharacteristic->getRemoteService()->getClient()->getPeerAddress());
-    str += ": Service = " + std::string(pRemoteCharacteristic->getRemoteService()->getUUID());
-    str += ", Characteristic = " + std::string(pRemoteCharacteristic->getUUID());
-    str += ", Value = " + std::string((char *)pData, length);
-    Serial.println(str.c_str());
+    if(pData[4] == 0 && pData[5] == 0)
+        return 0;
+    else 
+    if(pData[4] == 0x80 && pData[5] == 0x3F)
+        return 1;
+    else
+    if(pData[4] == 0x00 && pData[5] == 0x40)
+        return 2;
+    else
+    if(pData[4] == 0x40 && pData[5] == 0x40)
+        return 3;
+    else
+    if(pData[4] == 0x80 && pData[5] == 0x40)
+        return 4;
+    else
+    if(pData[4] == 0xA0 && pData[5] == 0x40)
+        return 5;
+    else
+    if(pData[4] == 0xC0 && pData[5] == 0x40)
+        return 6;   
+    else
+    if(pData[4] == 0xE0 && pData[5] == 0x40)
+        return 7;          
+    else
+    if(pData[4] == 0x00 && pData[5] == 0x41)
+        return 8;
+    else
+    if(pData[4] == 0x10 && pData[5] == 0x41)
+        return 9;     
+    else
+    if(pData[4] == 0x20 && pData[5] == 0x41)
+        return 10; 
+    
+    return 0;                                 
+}
+
+bool l2fp_SetClientData(WeDoHub_Client_t *dtClient)
+{
+    if(dtClient == NULL)
+        return false;
+
+    hubClientData = dtClient;
+
+    return true;
+}
+
+/** Notification / Indication receiving handler callback */
+void l2fp_notifyCB(NimBLERemoteCharacteristic *pRemoteCharacteristic, uint8_t *pData, size_t length, bool isNotify)
+{
+    // std::string str = (isNotify == true) ? "Notification" : "Indication";
+    // str += " from ";
+    // /** NimBLEAddress and NimBLEUUID have std::string operators */
+    // str += std::string(pRemoteCharacteristic->getRemoteService()->getClient()->getPeerAddress());
+    // str += ": Service = " + std::string(pRemoteCharacteristic->getRemoteService()->getUUID());
+    // str += ", Characteristic = " + std::string(pRemoteCharacteristic->getUUID());
+    // str += ", Value = " + std::string((char *)pData, length);
+    // Serial.println(str.c_str());
+
+    if(pRemoteCharacteristic->getUUID() == LEGOButton)
+    {
+        log_i("Hub Button: %s", (pData[0] == 1) ? "ON" : "OFF");
+        hubClientData->LedSysCurStatus = ledSt_SEARCH_CONTROLLER;
+    }else 
+    if(pRemoteCharacteristic->getUUID() == LEGOSensor){
+        uint8_t SensOnCurrPort = pData[1];
+
+        switch (SensOnCurrPort) // Check port function
+        {
+            case PORT_UNI_1:
+            case PORT_UNI_2:
+            
+                if(SensOnCurrPort == hubClientData->PortNumDetectSensor){
+                    hubClientData->DistanceCurrentValue = parseDigit_0_to_10(pData);
+                    log_i("Distance: %d [port %d]\r\n", hubClientData->DistanceCurrentValue, hubClientData->PortNumDetectSensor);
+                }else 
+                if(SensOnCurrPort == hubClientData->PortNumTitleSensor){
+                    log_i("TitleSensor data: [");
+                    for (int i = 0; i < length; i++){
+                        log_i("%02x", pData[i]);
+                    }
+                    log_i("] (Size: %d, port: %d)", length, SensOnCurrPort);
+                } 
+                break;
+
+            case PORT_RGB_LED:
+                log_i("Led color set to: %s\r\n", getLedColorStr(pData));
+                break;  
+
+            default:
+                log_i("Undefined port!!!");
+                break;
+        }
+    }else
+    if(pRemoteCharacteristic->getUUID() == LEGOPorts){
+        uint8_t changePort = pData[0];
+        if(pData[1] == 0){
+            log_i("Port %d disconnected", changePort);
+            if(hubClientData->PortNumDetectSensor == changePort)
+                hubClientData->PortNumDetectSensor = 0;
+
+            if(hubClientData->PortNumTitleSensor == changePort)
+                hubClientData->PortNumTitleSensor = 0;
+
+        }else if(pData[1] == 1){
+            switch(pData[3]){
+                case ID_MOTOR: log_i("Motor connected on port %d", changePort);
+                    break;
+
+                case ID_DETECT_SENSOR: log_i("DetectSensor connected on port %d", changePort);
+                    hubClientData->PortNumDetectSensor = changePort;
+                    break;
+
+                case ID_TILT_SENSOR: log_i("TitleSensor connected on port %d", changePort);
+                    hubClientData->PortNumTitleSensor  = changePort;
+                    break;
+
+                default: 
+                    break;
+            }
+        }
+    }
 }
 
 bool l2fp_isMainService(NimBLEAdvertisedDevice *advertisedDevice)
@@ -65,102 +198,88 @@ bool l2fp_ConnectToHub(NimBLEClient *pClient)
         { /** make sure it's not null */
             if (pBatChr->canRead())
             {
-                Serial.print(pBatChr->getUUID().toString().c_str());
-                Serial.print(" Value: ");
-                uint8_t batValue = pBatChr->readUInt8();
-                Serial.println(batValue);
+                log_i("UUID: %s, Bat Level: %d%%", 
+                        pBatChr->getUUID().toString().c_str(), 
+                        pBatChr->readUInt8());
             }
         }
     }
     else
     {
-        Serial.print("Not found: ");
-        Serial.println(LEGO_HUB_BatteryServiceUUID.toString().c_str());
+        log_i("Not found: %s", LEGO_HUB_BatteryServiceUUID.toString().c_str());
         return false;
     }
 
     pAdvertisingService = pClient->getService(LEGO_WeDo_advertisingUUID);
     if(pAdvertisingService == nullptr) {     /** убедитесь, что это не нольl */
-        Serial.print("Failed to find our service UUID: ");
-        Serial.println(LEGO_WeDo_advertisingUUID.toString().c_str());
+        log_i("Failed to find our service UUID: %s", LEGO_WeDo_advertisingUUID.toString().c_str());
         pClient->disconnect();
         return false;
     }
-    Serial.print("Found our service: ");
-    Serial.println(LEGO_WeDo_advertisingUUID.toString().c_str());
+    log_i("Found our service: %s", LEGO_WeDo_advertisingUUID.toString().c_str());
     
     pLEGOPorts = pAdvertisingService->getCharacteristic(LEGOPorts);
     if(pLEGOPorts == nullptr) {     /** убедитесь, что это не нольl */
-        Serial.print("Failed to find our service UUID(LEGOPorts): ");
-        Serial.println(LEGOPorts.toString().c_str());
+        log_i("Failed to find our service UUID (LEGOPorts): %s",LEGOPorts.toString().c_str());
         pClient->disconnect();
         return false;
     }
-    Serial.print("Found our service: ");
-    Serial.println(LEGOPorts.toString().c_str());
+    log_i("Found our service: %s", LEGOPorts.toString().c_str());
 
 
     pLEGO = pClient->getService(LEGO);
     if(pLEGO == nullptr) {     /** убедитесь, что это не нольl */
-        Serial.print("Failed to find our service UUID: ");
-        Serial.println(LEGO.toString().c_str());
+        log_i("Failed to find our service UUID: %", LEGO.toString().c_str());
         pClient->disconnect();
         return false;
     }
-    Serial.print("Found our service: ");
-    Serial.println(LEGO.toString().c_str());
+    log_i("Found our service: %s", LEGO.toString().c_str());
 
     pLEGOOutput = pLEGO->getCharacteristic(LEGOOutput);
     if (pLEGOOutput == nullptr) {
-        Serial.print("Failed to find our characteristic UUID: ");
-        Serial.println(LEGOOutput.toString().c_str());
+        log_i("Failed to find our characteristic UUID: %s", LEGOOutput.toString().c_str());
         pClient->disconnect();
         return false;
     }       
-    Serial.print("Found our characteristic: ");
-    Serial.println(LEGOOutput.toString().c_str());
+    log_i("Found our characteristic: %s", LEGOOutput.toString().c_str());
 
     pLEGOInput = pLEGO->getCharacteristic(LEGOInput);
     if (pLEGOInput == nullptr) {
-        Serial.print("Failed to find our characteristic UUID: ");
-        Serial.println(LEGOInput.toString().c_str());
+        log_i("Failed to find our characteristic UUID: %d", LEGOInput.toString().c_str());
         pClient->disconnect();
         return false;
     }
-    Serial.print("Found our characteristic: ");
-    Serial.println(LEGOInput.toString().c_str());
+    log_i("Found our characteristic: %s", LEGOInput.toString().c_str());
 
     pLEGOButton = pAdvertisingService->getCharacteristic(LEGOButton);
     if (pLEGOButton == nullptr) {
-        Serial.print("Failed to find our characteristic UUID: ");
-        Serial.println(LEGOButton.toString().c_str());
+        log_i("Failed to find our characteristic UUID: %s", LEGOButton.toString().c_str());
         pClient->disconnect();
         return false;
     }
-    Serial.print("Found our characteristic: ");
-    Serial.println(LEGOButton.toString().c_str());
+    log_i("Found our characteristic: %s", LEGOButton.toString().c_str());
 
     if(pLEGOButton->canNotify()){
-        if(!pLEGOButton->subscribe(true, notifyCB)) {
+        if(!pLEGOButton->subscribe(true, l2fp_notifyCB)) {
             /** Disconnect if subscribe failed */
             pClient->disconnect();
             return false;
         }
-        Serial.println("Subscribe to LEGOButton OK");
+        log_i("Subscribe to LEGOButton OK");
     }
 
     if(pLEGOPorts->canNotify()) {
         //if(!pChr->registerForNotify(notifyCB)) {
-        if(!pLEGOPorts->subscribe(true, notifyCB)) {
+        if(!pLEGOPorts->subscribe(true, l2fp_notifyCB)) {
             /** Disconnect if subscribe failed */
             pClient->disconnect();
             return false;
         }
-        Serial.println("Subscribe pLEGOPorts Notify");
+        log_i("Subscribe pLEGOPorts Notify");
     }
 
 
-    Serial.println("Done with this device!");
+    log_i("Done with this device!");
     return true;
 }
 

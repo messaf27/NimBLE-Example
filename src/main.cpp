@@ -17,15 +17,9 @@
 #define LedSysInit() pinMode(LED_SYSTEM, OUTPUT);
 #define LedSysOn() digitalWrite(LED_SYSTEM, HIGH)
 #define LedSysOff() digitalWrite(LED_SYSTEM, LOW)
+#define LedSysToogle() digitalWrite(LED_SYSTEM, !digitalRead(LED_SYSTEM))
 
-enum LedSysBlinkStatus
-{
-    ledSt_CONNECTED,
-    ledSt_CONNECTED_BAT_LOW,
-    ledSt_DISCONNECTED,
-    ledSt_DISCONNECTED_BAT_LOW,
-    ledSt_SEARCH_CONTROLLER
-};
+
 
 #define POWER_BTN_PIN       GPIO_NUM_4
 #define UP_BTN_PIN          GPIO_NUM_19
@@ -180,10 +174,6 @@ bool connectToServer()
 {
     NimBLEClient *pClient = nullptr;
 
-    // /** Делаем небольшую паузу перед подключением - сервер только запущен,
-    //  * сразу возможны сбои при подключении **/
-    // vTaskDelay(3000);
-
     /** Проверьте, есть ли у нас клиент, который мы должны повторно использовать в первую очередь. **/
     if (NimBLEDevice::getClientListSize())
     {
@@ -260,39 +250,6 @@ bool connectToServer()
     return l2fp_ConnectToHub(pClient);
 }
 
-/*
-Method to print the reason by which ESP32
-has been awaken from sleep
-*/
-void print_wakeup_reason()
-{
-    esp_sleep_wakeup_cause_t wakeup_reason;
-
-    wakeup_reason = esp_sleep_get_wakeup_cause();
-
-    switch (wakeup_reason)
-    {
-    case ESP_SLEEP_WAKEUP_EXT0:
-        log_i("Wakeup caused by external signal using RTC_IO");
-        break;
-    case ESP_SLEEP_WAKEUP_EXT1:
-        log_i("Wakeup caused by external signal using RTC_CNTL");
-        break;
-    case ESP_SLEEP_WAKEUP_TIMER:
-        log_i("Wakeup caused by timer");
-        break;
-    case ESP_SLEEP_WAKEUP_TOUCHPAD:
-        log_i("Wakeup caused by touchpad");
-        break;
-    case ESP_SLEEP_WAKEUP_ULP:
-        log_i("Wakeup caused by ULP program");
-        break;
-    default:
-        log_i("Wakeup was not caused by deep sleep: %d\n", wakeup_reason);
-        break;
-    }
-}
-
 void setup()
 {
     bool PowerOnEnable = false;
@@ -322,14 +279,8 @@ void setup()
     }
 
     log_i("Starting NimBLE Client, begin init...");
-    // //Increment boot number and print it every reboot
-    // ++bootCount;
-    // log_i("Boot number: %d",bootCount);
 
-    // //Print the wakeup reason for ESP32
-    // print_wakeup_reason();
-
-    // esp_sleep_enable_ext0_wakeup(POWER_BTN_PIN, 0); //1 = High, 0 = Low
+    l2fp_SetClientData(&HubClient);
 
     /** Initialize NimBLE, no device name spcified as we are not advertising */
     NimBLEDevice::init("");
@@ -400,7 +351,6 @@ void loop()
 static void Task_Main(void *pvParameters)
 {
     // (void)pvParameters;
-
     WeDoHub_Client_t *devParam = (WeDoHub_Client_t *)pvParameters;
     MotorTransCmd_t qMotorSendCmd;
 
@@ -467,15 +417,22 @@ static void Task_Led(void *pvParameters)
                 break;
 
             case ledSt_DISCONNECTED:
-                LedSysOn();
-                vTaskDelay(500);
-
-                LedSysOff();
+                LedSysToogle();
                 vTaskDelay(500);
 
                 if (ConStatusFlag)
                     ~ConStatusFlag;
                 break;
+
+            case ledSt_SEARCH_CONTROLLER:
+            devParam->LedSysCurStatus = ledSt_CONNECTED;
+            for(uint i = 0; i < 8; i++)
+            {
+                LedSysOff();
+                vTaskDelay(100);
+                LedSysOn();
+                vTaskDelay(50);
+            }
 
             default:
                 /** Обязательная задержка для работы других задач
