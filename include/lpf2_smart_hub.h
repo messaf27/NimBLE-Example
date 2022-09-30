@@ -4,25 +4,39 @@
 #include "Arduino.h"
 #include <NimBLEDevice.h>
 
-#define LEGO_HUB_NAME_STR   "LPF2 Smart Hub"
+#define configLEGO_HUB_DEFAULT_ADDRES                   "ff:ff:ff:ff:ff:ff"
+#define configLEGO_HUB_DEFAULT_ADDRES_STR_SIZE          17
+#define configLEGO_HUB_DEFAULT_NAME_STR                 "LPF2 Smart Hub"
+#define configLEGO_HUB_DEFAULTDETECT_SENS_STOP_VALUE    (5)
+#define configLEGO_HUB_SENSOR_POLL_PERIOD_MS            (1000)
+
+typedef struct{
+    int drvLeftVal;
+    int drvLeftDoubleVal;
+    int drvRightVal;
+    int drvRightDoubleVal;
+    int detectSensorStopValue;
+}eeConstVal_t;
 
 typedef struct
 {
     bool DevConnected;
     bool DevSearch;
-    String LinkDevAddres;
+    String LinkDevAddress;
     uint8_t LedSysCurStatus;
     uint8_t PortNumTitleSensor;
     uint8_t PortNumDetectSensor;
     uint8_t DistanceCurrentValue;
     bool DriveOneEnabled;
     bool DriveTwoEnabled;
+    eeConstVal_t eeConstConfig;
 
 } WeDoHub_Client_t;
 
-#define WEDOHUB_CLIENT_SET_DEFAULT  {false, false, "", ledSt_DISCONNECTED, 0, 0, 0, false, false}
+// #define WEDOHUB_CLIENT_SET_DEFAULT  {false, false, "", ledSt_DISCONNECTED, 0, 0, 0, false, false}
+#define WEDOHUB_CLIENT_SET_DEFAULT  {}
 
-enum MotorSpeedDir
+enum DefaultConfigMotorSpeedDir
 {
     MSD_STOP =              0,
     MSD_SET_LEFT =          -65,
@@ -33,11 +47,12 @@ enum MotorSpeedDir
 
 enum LedSysBlinkStatus
 {
-    ledSt_CONNECTED,
-    ledSt_CONNECTED_BAT_LOW,
     ledSt_DISCONNECTED,
     ledSt_DISCONNECTED_BAT_LOW,
-    ledSt_SEARCH_CONTROLLER
+    ledSt_CONNECTED,
+    ledSt_CONNECTED_BAT_LOW,
+    ledSt_SEARCH_CONTROLLER,
+    ledSt_LINK_HUB_ADDR_ACTION
 };
 
 typedef struct 
@@ -52,9 +67,9 @@ MotorTransCmd_t;
 //0x23
 #define ID_DETECT_SENSOR    35
 //0x24
-#define RANGE_10            0
-#define RANGE_100           1
-#define RANGE_RAW           2
+// #define RANGE_10            0
+// #define RANGE_100           1
+// #define RANGE_RAW           2
 
 enum LedColors{
     LEGO_COLOR_BLACK = 0,
@@ -89,7 +104,26 @@ enum PortFunctions{
     PORT_RGB_LED = 6
 };
 
-bool l2fp_SetClientData(WeDoHub_Client_t *dtClient);
+#include <EEPROM.h>
+
+typedef struct {
+    uint32_t eeSaveCounter;
+    // String eeLinkDevAddress;
+    char eeLinkDevAddress[17];
+    int eeMotorConfig[4];
+    int eeDetectSensorStopValue;
+}ee_settings_t;
+
+// bool l2fp_ReadEESettings(ee_settings_t *settings);
+// bool l2fp_SaveEESettings(ee_settings_t *settings);
+// bool l2fp_SetDefaultEESettings(ee_settings_t *settings);
+
+bool l2fp_ReadEESettings(void);
+bool l2fp_SaveEESettings(void);
+bool l2fp_SetDefaultEESettings(void);
+bool l2fp_LinkDevAddress(String linkAddr);
+
+bool l2fp_InitClientConfig(WeDoHub_Client_t *dtClient);
 bool l2fp_isMainService(NimBLEAdvertisedDevice *advertisedDevice);
 bool l2fp_ConnectToHub(NimBLEClient *pClient);
 bool l2fp_WriteMotorCommand(uint8_t wedo_port,int wedo_speed);

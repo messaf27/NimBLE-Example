@@ -4,6 +4,9 @@
 
 WeDoHub_Client_t *hubClientData;
 
+// EEPROM Settings struct;
+ee_settings_t eeSettigs = {};
+
 // Удаленный сервис, к которому мы хотим подключиться.
 static NimBLEUUID LEGO_WeDo_advertisingUUID("00001523-1212-efde-1523-785feabcd123");
 // static NimBLEUUID LEGO_LedButton_advertisingUUID("00001523-1212-efde-1523-785feabcd123");
@@ -28,7 +31,8 @@ NimBLERemoteCharacteristic* pLEGOInput = nullptr;
 NimBLERemoteCharacteristic* pLEGOButton = nullptr;
 NimBLERemoteCharacteristic* pLEGOPorts = nullptr;
 
-const char* getLedColorStr(uint8_t *pData){
+
+static const char* getLedColorStr(uint8_t *pData){
     switch(pData[2])
     {
         case LEGO_COLOR_BLACK:          return "BLACK";        
@@ -47,7 +51,7 @@ const char* getLedColorStr(uint8_t *pData){
     }              
 } 
 
-uint8_t parseDigit_0_to_10(uint8_t *pData)
+static uint8_t parseDigit_0_to_10(uint8_t *pData)
 {
     if(pData[4] == 0 && pData[5] == 0)
         return 0;
@@ -87,28 +91,73 @@ uint8_t parseDigit_0_to_10(uint8_t *pData)
 
 
 /////////////////////////////////////////////////////////////////////////////////
-bool l2fp_SetClientData(WeDoHub_Client_t *dtClient)
+bool l2fp_InitClientConfig(WeDoHub_Client_t *dtClient)
 {
     if(dtClient == NULL)
         return false;
 
+    if(!l2fp_ReadEESettings())
+        return false;
+
     hubClientData = dtClient;
 
+    hubClientData->LinkDevAddress = String(eeSettigs.eeLinkDevAddress);    
+    hubClientData->eeConstConfig.drvLeftVal = eeSettigs.eeMotorConfig[0];
+    hubClientData->eeConstConfig.drvLeftDoubleVal = eeSettigs.eeMotorConfig[1];
+    hubClientData->eeConstConfig.drvRightVal = eeSettigs.eeMotorConfig[2];
+    hubClientData->eeConstConfig.drvRightDoubleVal = eeSettigs.eeMotorConfig[3];
+    
     return true;
+}
+
+bool l2fp_ReadEESettings(void)
+{
+    bool ret = false;
+
+    ret = EEPROM.begin(512);
+    EEPROM.get(0, eeSettigs);
+    EEPROM.end();
+    log_i("EE-Settings.eeLinkDevAddress = %s",eeSettigs.eeLinkDevAddress);
+    log_i("EE-Settings.eeMotorConfig = [%d,%d,%d,%d]", eeSettigs.eeMotorConfig[0], eeSettigs.eeMotorConfig[1], eeSettigs.eeMotorConfig[2], eeSettigs.eeMotorConfig[3]);
+    log_i("EE-Settings.eeSaveCounter = %ld", eeSettigs.eeSaveCounter);
+    return ret;
+}
+
+bool l2fp_SaveEESettings(void)
+{
+    bool ret = false;
+
+    ret = EEPROM.begin(512);
+    eeSettigs.eeSaveCounter++;
+    EEPROM.put(0, eeSettigs);
+    EEPROM.commit();
+    EEPROM.end();
+    
+    return ret;
+}
+
+bool l2fp_SetDefaultEESettings(void)
+{
+    eeSettigs.eeSaveCounter = 0; // reset save eeprom conter
+    String(configLEGO_HUB_DEFAULT_ADDRES).toCharArray(eeSettigs.eeLinkDevAddress, configLEGO_HUB_DEFAULT_ADDRES_STR_SIZE + 1); //"ff:ff:ff:ff:ff:ff";
+    eeSettigs.eeMotorConfig[0] = MSD_SET_LEFT;
+    eeSettigs.eeMotorConfig[1] = MSD_SET_LEFT_DOUBLE;
+    eeSettigs.eeMotorConfig[2] = MSD_SET_RIGHT;
+    eeSettigs.eeMotorConfig[3] = MSD_SET_RIGHT_DOUBLE;
+    eeSettigs.eeDetectSensorStopValue = configLEGO_HUB_DEFAULTDETECT_SENS_STOP_VALUE;
+
+    return l2fp_SaveEESettings();
+}
+
+bool l2fp_LinkDevAddress(String linkAddr)
+{
+    linkAddr.toCharArray(eeSettigs.eeLinkDevAddress, configLEGO_HUB_DEFAULT_ADDRES_STR_SIZE + 1);
+    return l2fp_SaveEESettings();
 }
 
 /** Notification / Indication receiving handler callback */
 void l2fp_notifyCB(NimBLERemoteCharacteristic *pRemoteCharacteristic, uint8_t *pData, size_t length, bool isNotify)
 {
-    // std::string str = (isNotify == true) ? "Notification" : "Indication";
-    // str += " from ";
-    // /** NimBLEAddress and NimBLEUUID have std::string operators */
-    // str += std::string(pRemoteCharacteristic->getRemoteService()->getClient()->getPeerAddress());
-    // str += ": Service = " + std::string(pRemoteCharacteristic->getRemoteService()->getUUID());
-    // str += ", Characteristic = " + std::string(pRemoteCharacteristic->getUUID());
-    // str += ", Value = " + std::string((char *)pData, length);
-    // Serial.println(str.c_str());
-
     if(pRemoteCharacteristic->getUUID() == LEGOButton)
     {
         log_i("Hub Button: %s", (pData[0] == 1) ? "ON" : "OFF");
@@ -137,7 +186,7 @@ void l2fp_notifyCB(NimBLERemoteCharacteristic *pRemoteCharacteristic, uint8_t *p
             break;
 
             case PORT_RGB_LED:
-                log_i("Led color set to: %s\r\n", getLedColorStr(pData));
+                log_i("Led color set to: %s", getLedColorStr(pData));
             break;  
 
             default:
@@ -219,7 +268,8 @@ bool l2fp_ConnectToHub(NimBLEClient *pClient)
             {
                 log_i("UUID: %s, Bat Level: %d%%", 
                         pBatChr->getUUID().toString().c_str(), 
-                        pBatChr->readUInt8());
+                        // pBatChr->readUInt8());
+                        pBatChr->readValue<uint8_t>());
             }
         }
     }
@@ -312,7 +362,6 @@ bool l2fp_ConnectToHub(NimBLEClient *pClient)
         }
         log_i("Subscribe Sensor Notify");
     }
-
 
     log_i("Done with this device!");
     return true;
