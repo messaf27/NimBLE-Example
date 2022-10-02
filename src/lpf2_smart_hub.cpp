@@ -400,3 +400,42 @@ bool l2fp_SetDetectSensor(uint8_t port)
   uint8_t command[] = {0x01, 0x02, port, ID_DETECT_SENSOR, 0, 0x01, 0x00, 0x00, 0x00, MOTION_SENSOR_MODE_DETECT, 0x01};
   return pLEGOInput->writeValue(command,sizeof(command));
 }
+
+bool l2fp_IsPermissibleDistance(void)
+{
+    if(hubClientData->DistanceCurrentValue <= eeSettigs.eeDetectSensorStopValue)
+        return false;
+
+    return true;
+}
+
+void l2fp_DetectSensorAction(void)
+{
+    static bool setLedFlag;
+    if(!l2fp_IsPermissibleDistance() && !setLedFlag)
+    {
+        l2fp_WriteIndexColor(LEGO_COLOR_RED);
+        setLedFlag = true;
+    }
+    else
+    if(l2fp_IsPermissibleDistance() && setLedFlag)
+    {
+        l2fp_WriteIndexColor(LEGO_COLOR_GREEN);
+        setLedFlag = false;
+    }
+} 
+
+bool l2fp_CriticalDistance(void)
+{
+    static bool actionFlag;
+
+    if(!l2fp_IsPermissibleDistance() && !actionFlag)
+    {
+        actionFlag = true;
+        return true;
+    }
+    else if(l2fp_IsPermissibleDistance() && actionFlag)
+        actionFlag = false;
+
+    return false;
+}

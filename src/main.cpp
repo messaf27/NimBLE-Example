@@ -19,22 +19,22 @@
 #define LedSysOff() digitalWrite(LED_SYSTEM, LOW)
 #define LedSysToogle() digitalWrite(LED_SYSTEM, !digitalRead(LED_SYSTEM))
 
-#define POWER_BTN_PIN       GPIO_NUM_4
-#define UP_BTN_PIN          GPIO_NUM_19
-#define DOWN_BTN_PIN        GPIO_NUM_18
-#define LEFT_BTN_PIN        GPIO_NUM_32
-#define RIGHT_BTN_PIN       GPIO_NUM_33
+#define POWER_BTN_PIN GPIO_NUM_4
+#define UP_BTN_PIN GPIO_NUM_19
+#define DOWN_BTN_PIN GPIO_NUM_18
+#define LEFT_BTN_PIN GPIO_NUM_32
+#define RIGHT_BTN_PIN GPIO_NUM_33
 
 // RTC_DATA_ATTR char rtcLinkDevAddress[10];
 
 // // EEPROM Settings struct;
 // ee_settings_t eeSettigs = {};
 
-EncButton<EB_TICK, POWER_BTN_PIN>   BtnPwrLink;   // просто кнопка <KEY>
-EncButton<EB_TICK, UP_BTN_PIN>      BtnUp;           // просто кнопка <KEY>
-EncButton<EB_TICK, DOWN_BTN_PIN>    BtnDwn;        // просто кнопка <KEY>
-EncButton<EB_TICK, LEFT_BTN_PIN>    BtnLft;        // просто кнопка <KEY>
-EncButton<EB_TICK, RIGHT_BTN_PIN>   BtnRght;      // просто кнопка <KEY>
+EncButton<EB_TICK, POWER_BTN_PIN> BtnPwrLink; // просто кнопка <KEY>
+EncButton<EB_TICK, UP_BTN_PIN> BtnUp;         // просто кнопка <KEY>
+EncButton<EB_TICK, DOWN_BTN_PIN> BtnDwn;      // просто кнопка <KEY>
+EncButton<EB_TICK, LEFT_BTN_PIN> BtnLft;      // просто кнопка <KEY>
+EncButton<EB_TICK, RIGHT_BTN_PIN> BtnRght;    // просто кнопка <KEY>
 
 WeDoHub_Client_t HubClient = WEDOHUB_CLIENT_SET_DEFAULT; //{false, false, "", ledSt_DISCONNECTED, 0, 0, 0, false, false};
 
@@ -190,7 +190,6 @@ bool connectToServer()
             /** Делаем небольшую паузу перед первым подключением - сервер только запущен,
              * сразу возможны сбои при подключении (зависает звуковой сигнал хаба)**/
             delay(2000);
-
         }
         /** У нас еще нет клиента, который знает это устройство,
          * мы проверим отключенный клиент, который мы можем использовать.
@@ -262,7 +261,7 @@ void setup()
 
     while (digitalRead(POWER_BTN_PIN) == LOW)
     {
-        if (millis() >= 2000)
+        if (millis() >= configLEGO_HUB_TIMEOUT_MS_POWER_ON)
         {
             log_i("Hold power button");
             PowerOnEnable = true;
@@ -331,11 +330,13 @@ void setup()
      */
     pScan->start(scanTime, scanEndedCB);
 
-    BtnActQueue = xQueueCreate(4, sizeof (MotorTransCmd_t));
-    if (BtnActQueue == NULL)  // Queue not created 
-    {    
+    BtnActQueue = xQueueCreate(4, sizeof(MotorTransCmd_t));
+    if (BtnActQueue == NULL) // Queue not created
+    {
         log_i("BtnActQueue Not Created!!!");
-    }else{
+    }
+    else
+    {
         log_i("BtnActQueue Create OK");
         xTaskCreatePinnedToCore(Task_Led, "Task_Led", 2048, (void *)&HubClient, 5, NULL, ARDUINO_RUNNING_CORE);
         xTaskCreatePinnedToCore(Task_Main, "Task_Main", 8192, (void *)&HubClient, 4, NULL, ARDUINO_RUNNING_CORE);
@@ -345,7 +346,6 @@ void setup()
 
 void loop()
 {
-
 }
 
 // FreeRTOS Task's
@@ -364,7 +364,7 @@ static void Task_Main(void *pvParameters)
         /** Loop here until we find a device we want to connect to */
         while (!doConnect)
         {
-            if(devParam->DevConnected)
+            if (devParam->DevConnected)
             {
                 if (xQueueReceive(BtnActQueue, &qMotorSendCmd, 10) == pdPASS)
                 {
@@ -373,20 +373,26 @@ static void Task_Main(void *pvParameters)
                 }
                 vTaskDelay(10);
 
-                if(xTaskGetTickCount() - lstTickCount > configLEGO_HUB_SENSOR_POLL_PERIOD_MS)
-                {                
-                    if(devParam->PortNumTitleSensor > 0){
+                if (xTaskGetTickCount() - lstTickCount > configLEGO_HUB_SENSOR_POLL_PERIOD_MS)
+                {
+                    if (devParam->PortNumTitleSensor > 0)
+                    {
                         result = l2fp_SetTiltSensor(devParam->PortNumTitleSensor);
                         // log_i("Update TiltSensor (port %d) %s", devParam->PortNumTitleSensor, result?"OK":"FAIL");
                     }
 
-                    if(devParam->PortNumDetectSensor > 0){
+                    // Проверяем подключен ли датчик препядствий
+                    if (devParam->PortNumDetectSensor > 0)
+                    {
                         result = l2fp_SetDetectSensor(devParam->PortNumDetectSensor);
                         // log_i("Update DetectSensor (port %d) %s", devParam->PortNumDetectSensor, result?"OK":"FAIL");
                     }
 
                     lstTickCount = xTaskGetTickCount();
                 }
+
+                if (devParam->PortNumDetectSensor > 0)
+                    l2fp_DetectSensorAction();
             }
         }
 
@@ -426,28 +432,28 @@ static void Task_Led(void *pvParameters)
     {
         switch (devParam->LedSysCurStatus)
         {
-            case ledSt_CONNECTED:
-                if (!ConStatusFlag)
-                {
-                    LedSysOn();
-                    ~ConStatusFlag;
-                }
-                /** Обязательная задержка для работы других задач
-                 * (никакие условия в это задачи не выполняются) **/
-                vTaskDelay(250);
+        case ledSt_CONNECTED:
+            if (!ConStatusFlag)
+            {
+                LedSysOn();
+                ~ConStatusFlag;
+            }
+            /** Обязательная задержка для работы других задач
+             * (никакие условия в это задачи не выполняются) **/
+            vTaskDelay(250);
             break;
 
-            case ledSt_DISCONNECTED:
-                LedSysToogle();
-                vTaskDelay(500);
+        case ledSt_DISCONNECTED:
+            LedSysToogle();
+            vTaskDelay(500);
 
-                if (ConStatusFlag)
-                    ~ConStatusFlag;
+            if (ConStatusFlag)
+                ~ConStatusFlag;
             break;
 
-            case ledSt_SEARCH_CONTROLLER:
+        case ledSt_SEARCH_CONTROLLER:
             devParam->LedSysCurStatus = ledSt_CONNECTED;
-            for(uint i = 0; i < 8; i++)
+            for (uint i = 0; i < 8; i++)
             {
                 LedSysOff();
                 vTaskDelay(100);
@@ -456,9 +462,9 @@ static void Task_Led(void *pvParameters)
             }
             break;
 
-            case ledSt_LINK_HUB_ADDR_ACTION:
+        case ledSt_LINK_HUB_ADDR_ACTION:
             devParam->LedSysCurStatus = ledSt_CONNECTED;
-            for(uint i = 0; i < 4; i++)
+            for (uint i = 0; i < 4; i++)
             {
                 LedSysOff();
                 vTaskDelay(50);
@@ -466,13 +472,13 @@ static void Task_Led(void *pvParameters)
                 vTaskDelay(25);
             }
             break;
-            
-            default:
-                /** Обязательная задержка для работы других задач
-                 * (никакие условия в это задачи не выполняются) **/
-                vTaskDelay(250);
+
+        default:
+            /** Обязательная задержка для работы других задач
+             * (никакие условия в это задачи не выполняются) **/
+            vTaskDelay(250);
             break;
-            }
+        }
     }
 }
 
@@ -482,6 +488,7 @@ static void Task_Buttons(void *pvParameters)
     WeDoHub_Client_t *devParam = (WeDoHub_Client_t *)pvParameters;
 
     MotorTransCmd_t qMotorSendCmd;
+    static bool drvStopFlag = false;
     // memset(qBtnAction, 0, sizeof(qBtnAction));
     BtnPwrLink.setHoldTimeout(2000);
 
@@ -517,55 +524,79 @@ static void Task_Buttons(void *pvParameters)
         // if (BtnDwn.isHolded())
         //     log_i("isHolded BtnDwn");
 
-        if(devParam->DevConnected)
+        if (devParam->DevConnected)
         {
             /** Send Queue**/
             // Проверяем подключен ли двигатель к порту 1
-            if(devParam->DriveOneEnabled){
-                // Up/Down Buttons commands
-                if (BtnUp.press()){ 
-                    qMotorSendCmd.driveNum = 1;
-                    // qMotorSendCmd.rotSpeedDir = MSD_SET_RIGHT;
-                    qMotorSendCmd.rotSpeedDir = devParam->eeConstConfig.drvRightVal;
-                    xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
+            if (devParam->DriveOneEnabled)
+            {
+                // Проверяем подключен ли датчик препядствий
+                if (devParam->PortNumDetectSensor > 0)
+                {
+                    // Обработка нажатия кнопки "ВПЕРЁД"
+                    if (BtnUp.press() && (l2fp_IsPermissibleDistance() == true))
+                    {
+                        log_i("(BtnUp.press() && (l2fp_IsPermissibleDistance() == true))");
+                        qMotorSendCmd.driveNum = 1;
+                        qMotorSendCmd.rotSpeedDir = devParam->eeConstConfig.drvRightVal;
+                        xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
+                    }
+                    // Обработка удержания кнопки "ВПЕРЁД"
+                    else if (BtnUp.held() && (l2fp_IsPermissibleDistance() == true))
+                    {
+                        log_i("(BtnUp.held() && (l2fp_IsPermissibleDistance() == true))");
+                        qMotorSendCmd.driveNum = 1;
+                        qMotorSendCmd.rotSpeedDir = devParam->eeConstConfig.drvRightDoubleVal;
+                        xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
+                    }
+                    // Если дистанция меньше нормы -> препядствие обнаружено, останавливаемся
+                    if(l2fp_CriticalDistance())
+                    {
+                        log_i("(l2fp_DistanceStop())");
+                        qMotorSendCmd.driveNum = 1;
+                        qMotorSendCmd.rotSpeedDir = MSD_STOP;
+                        xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
+                    }
+
                 }
-                else
-                if(BtnUp.held()){
+                else //(devParam->PortNumDetectSensor > 0)
+                {
+                    // Обработка нажатия кнопки "ВПЕРЁД"
+                    if (BtnUp.press())
+                    {
+                        qMotorSendCmd.driveNum = 1;
+                        qMotorSendCmd.rotSpeedDir = devParam->eeConstConfig.drvRightVal;
+                        xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
+                    }
+                    else
+                    // Обработка удержания кнопки "ВПЕРЁД"
+                    if (BtnUp.held())
+                    {
+                        qMotorSendCmd.driveNum = 1;
+                        qMotorSendCmd.rotSpeedDir = devParam->eeConstConfig.drvRightDoubleVal;
+                        xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
+                    }
+                } // (devParam->PortNumDetectSensor > 0)
+
+                // Обработка нажатия кнопки "НАЗАД"
+                if (BtnDwn.press())
+                {
                     qMotorSendCmd.driveNum = 1;
-                    // qMotorSendCmd.rotSpeedDir = MSD_SET_RIGHT_DOUBLE;
-                    qMotorSendCmd.rotSpeedDir = devParam->eeConstConfig.drvRightDoubleVal;
-                    xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
-                }
-                else
-                if (BtnDwn.press()){ 
-                    qMotorSendCmd.driveNum = 1;
-                    // qMotorSendCmd.rotSpeedDir = MSD_SET_LEFT;
                     qMotorSendCmd.rotSpeedDir = devParam->eeConstConfig.drvLeftVal;
                     xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
                 }
-                else
-                if(BtnDwn.held()){
+                // Обработка удержания кнопки "НАЗАД"
+                else if (BtnDwn.held())
+                {
                     qMotorSendCmd.driveNum = 1;
-                    // qMotorSendCmd.rotSpeedDir = MSD_SET_LEFT_DOUBLE;
                     qMotorSendCmd.rotSpeedDir = devParam->eeConstConfig.drvLeftDoubleVal;
                     xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
                 }
-                else
-                if(
-                    (BtnUp.release() && !BtnDwn.state())
-                    ||
+                else if (
+                    (BtnUp.release() && !BtnDwn.state()) ||
                     (BtnDwn.release() && !BtnUp.state())
-                ){
-                    qMotorSendCmd.driveNum = 1;
-                    qMotorSendCmd.rotSpeedDir = MSD_STOP;
-                    xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
-                }
-                else
-                if(
-                    (devParam->DistanceCurrentValue <= devParam->eeConstConfig.detectSensorStopValue)
-                    && 
-                    !BtnDwn.state()
-                ){
+                )
+                {
                     qMotorSendCmd.driveNum = 1;
                     qMotorSendCmd.rotSpeedDir = MSD_STOP;
                     xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
@@ -573,56 +604,50 @@ static void Task_Buttons(void *pvParameters)
             }
 
             // Проверяем подключен ли двигатель к порту 2
-            if(devParam->DriveTwoEnabled){
+            if (devParam->DriveTwoEnabled)
+            {
                 // Right/Left Buttons commands
-                if (BtnRght.press()){ 
+                if (BtnRght.press())
+                {
                     qMotorSendCmd.driveNum = 2;
-                    // qMotorSendCmd.rotSpeedDir = MSD_SET_RIGHT;
                     qMotorSendCmd.rotSpeedDir = devParam->eeConstConfig.drvRightVal;
                     xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
                 }
-                else
-                if(BtnRght.held()){
+                else if (BtnRght.held())
+                {
                     qMotorSendCmd.driveNum = 2;
-                    // qMotorSendCmd.rotSpeedDir = MSD_SET_RIGHT_DOUBLE;
                     qMotorSendCmd.rotSpeedDir = devParam->eeConstConfig.drvRightDoubleVal;
                     xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
                 }
-                else
-                if (BtnLft.press()){ 
+                else if (BtnLft.press())
+                {
                     qMotorSendCmd.driveNum = 2;
-                    // qMotorSendCmd.rotSpeedDir = MSD_SET_LEFT;
                     qMotorSendCmd.rotSpeedDir = devParam->eeConstConfig.drvLeftVal;
                     xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
                 }
-                else
-                if(BtnLft.held()){
+                else if (BtnLft.held())
+                {
                     qMotorSendCmd.driveNum = 2;
-                    // qMotorSendCmd.rotSpeedDir = MSD_SET_LEFT_DOUBLE;
                     qMotorSendCmd.rotSpeedDir = devParam->eeConstConfig.drvLeftDoubleVal;
                     xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
                 }
-                else
-                if(
-                    (BtnRght.release() && !BtnLft.state())
-                    ||
-                    (BtnLft.release() && !BtnRght.state())
-                ){
+                else if (
+                    (BtnRght.release() && !BtnLft.state()) ||
+                    (BtnLft.release() && !BtnRght.state()))
+                {
                     qMotorSendCmd.driveNum = 2;
                     qMotorSendCmd.rotSpeedDir = MSD_STOP;
                     xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
                 }
             }
 
-            if(BtnPwrLink.hasClicks(3))
+            if (BtnPwrLink.hasClicks(3))
             {
                 log_i("Save link address hub to EEPROM: %s", DevCurrentAddress.c_str());
                 l2fp_LinkDevAddress(DevCurrentAddress);
                 devParam->LedSysCurStatus = ledSt_LINK_HUB_ADDR_ACTION;
             }
         } // if (devParam->DevConnected)
-
-
 
         if (BtnPwrLink.held())
         {
@@ -632,7 +657,7 @@ static void Task_Buttons(void *pvParameters)
             vTaskDelay(1000);
             esp_deep_sleep_start();
         }
-        
+
         vTaskDelay(10);
     }
 }

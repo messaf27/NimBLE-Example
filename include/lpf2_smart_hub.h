@@ -9,6 +9,7 @@
 #define configLEGO_HUB_DEFAULT_NAME_STR                 "LPF2 Smart Hub"
 #define configLEGO_HUB_DEFAULTDETECT_SENS_STOP_VALUE    (5)
 #define configLEGO_HUB_SENSOR_POLL_PERIOD_MS            (1000)
+#define configLEGO_HUB_TIMEOUT_MS_POWER_ON              (750)
 
 typedef struct{
     int drvLeftVal;
@@ -131,5 +132,8 @@ bool l2fp_WriteIndexColor(uint8_t color);
 bool l2fp_WriteRGB(uint8_t red, uint8_t green, uint8_t blue);
 bool l2fp_SetTiltSensor(uint8_t port);
 bool l2fp_SetDetectSensor(uint8_t port);
+bool l2fp_IsPermissibleDistance(void);
+void l2fp_DetectSensorAction(void);
+bool l2fp_CriticalDistance(void);
 
 #endif /*__LPF2_SMART_HUB__*/
