@@ -278,6 +278,8 @@ void setup()
 
     log_i("Starting NimBLE Client, begin init... (CoreID: %d)", xPortGetCoreID());
 
+    // l2fp_SetDefaultEESettings();
+
     // Иинициализация конфигурации клиента, чтение из EEPROM необходимых настроек
     l2fp_InitClientConfig(&HubClient);
 
@@ -497,7 +499,7 @@ static void Task_Led(void *pvParameters)
                 vTaskDelay(50);
                 LedSysOff();
 
-                vTaskDelay(250);
+                vTaskDelay(750);
                 break;
 
             case ledSt_LINK_HUB_ADDR_ACTION:
@@ -528,13 +530,14 @@ static void Task_Buttons(void *pvParameters)
     MotorTransCmd_t qMotorSendCmd;
     static bool drvStopFlag = false;
     static uint8_t lastLedState = ledSt_DISCONNECTED;
+    static uint8_t PwrBtnStepCount = 0;
     // memset(qBtnAction, 0, sizeof(qBtnAction));
-    BtnPwrLink.setHoldTimeout(2000);
+    BtnPwrLink.setHoldTimeout(configLEGO_HUB_TIMEOUT_MS_HELD_PWR_BUTTON);
 
-    BtnUp.setHoldTimeout(1000);
-    BtnDwn.setHoldTimeout(1000);
-    BtnLft.setHoldTimeout(1000);
-    BtnRght.setHoldTimeout(1000);
+    BtnUp.setHoldTimeout(configLEGO_HUB_TIMEOUT_MS_HELD_CONTROL_BUTTON);
+    BtnDwn.setHoldTimeout(configLEGO_HUB_TIMEOUT_MS_HELD_CONTROL_BUTTON);
+    BtnLft.setHoldTimeout(configLEGO_HUB_TIMEOUT_MS_HELD_CONTROL_BUTTON);
+    BtnRght.setHoldTimeout(configLEGO_HUB_TIMEOUT_MS_HELD_CONTROL_BUTTON);
 
     log_i("Run Task_Buttons (CoreID: %d)", xPortGetCoreID());
 
@@ -546,24 +549,34 @@ static void Task_Buttons(void *pvParameters)
         BtnLft.tick();
         BtnRght.tick();
 
-        if(BtnPwrLink.press())
+        if (BtnPwrLink.held())
         {
+            log_i("Held BtnPwrLink");
             lastLedState = devParam->LedSysCurStatus;
             devParam->LedSysCurStatus = ledSt_HOLD_PWR_BUTTON;
+
         }
-        else if(BtnPwrLink.release())
+        
+        if (BtnPwrLink.step())
         {
+            PwrBtnStepCount++;
+            log_i("Step BtnPwrLink (count: %d)", PwrBtnStepCount);
+
+            if(PwrBtnStepCount >= configLEGO_HUB_NUM_OF_STEPS_HOLD_PWR_BUTTON)
+            {
+                log_i("Held Steps BtnPwrLink is %d -> Going to sleep now", PwrBtnStepCount);
+                // Go to sleep now
+                vTaskDelay(1000);
+                esp_deep_sleep_start();
+            }
+        }
+        
+        if(BtnPwrLink.releaseStep())
+        {
+            PwrBtnStepCount = 0;
             devParam->LedSysCurStatus = lastLedState;
         }
         
-        if (BtnPwrLink.held())
-        {
-            log_i("Held BtnPwrLink -> Going to sleep now");
-            // Go to sleep now
-            vTaskDelay(1000);
-            esp_deep_sleep_start();
-        }
-
         // if (BtnPwrLink.click())
         //     log_i("Click BtnPwrLink");
         // if (BtnUp.click())
@@ -732,7 +745,11 @@ static void Task_Buttons(void *pvParameters)
             }
         } // if (devParam->DevConnected)
 
-
+        BtnPwrLink.resetState();
+        BtnUp.resetState();
+        BtnDwn.resetState();
+        BtnLft.resetState();
+        BtnRght.resetState();
 
         vTaskDelay(10);
     }

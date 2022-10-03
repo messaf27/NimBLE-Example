@@ -8,10 +8,14 @@
 #define configLEGO_HUB_DEFAULT_ADDRES                       "ff:ff:ff:ff:ff:ff"
 #define configLEGO_HUB_DEFAULT_ADDRES_STR_SIZE              17
 #define configLEGO_HUB_DEFAULT_STABLE_DELAY_TIMEOUT_MS      (1750)
-#define configLEGO_HUB_DEFAULT_DETECT_SENS_STOP_VALUE       (5)
+#define configLEGO_HUB_DEFAULT_DETECT_SENS_STOP_VALUE       (7)
 #define configLEGO_HUB_DEFAULT_DETECT_SENS_MAX_VALUE        (10)
+
 #define configLEGO_HUB_SENSOR_POLL_PERIOD_MS                (1000)
 #define configLEGO_HUB_TIMEOUT_MS_POWER_ON                  (750)
+#define configLEGO_HUB_TIMEOUT_MS_HELD_CONTROL_BUTTON       (1000) 
+#define configLEGO_HUB_TIMEOUT_MS_HELD_PWR_BUTTON           (1000) 
+#define configLEGO_HUB_NUM_OF_STEPS_HOLD_PWR_BUTTON         (7) 
 
 
 typedef struct
@@ -45,9 +49,9 @@ typedef struct
 enum DefaultConfigMotorSpeedDir
 {
     MSD_STOP =              0,
-    MSD_SET_LEFT =          -65,
+    MSD_SET_LEFT =          -75,
     MSD_SET_LEFT_DOUBLE =   -100,
-    MSD_SET_RIGHT =         65,
+    MSD_SET_RIGHT =         75,
     MSD_SET_RIGHT_DOUBLE =  100
 };
 
