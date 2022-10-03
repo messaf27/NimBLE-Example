@@ -13,28 +13,28 @@
 
 #include "lpf2_smart_hub.h"
 
-#define LED_SYSTEM 25 // 5
-#define LedSysInit() pinMode(LED_SYSTEM, OUTPUT);
-#define LedSysOn() digitalWrite(LED_SYSTEM, HIGH)
-#define LedSysOff() digitalWrite(LED_SYSTEM, LOW)
-#define LedSysToogle() digitalWrite(LED_SYSTEM, !digitalRead(LED_SYSTEM))
+#define LED_SYSTEM      GPIO_NUM_25 // 5
+#define LedSysInit()    pinMode(LED_SYSTEM, OUTPUT);
+#define LedSysOn()      digitalWrite(LED_SYSTEM, HIGH)
+#define LedSysOff()     digitalWrite(LED_SYSTEM, LOW)
+#define LedSysToogle()  digitalWrite(LED_SYSTEM, !digitalRead(LED_SYSTEM))
 
-#define POWER_BTN_PIN GPIO_NUM_4
-#define UP_BTN_PIN GPIO_NUM_19
-#define DOWN_BTN_PIN GPIO_NUM_18
-#define LEFT_BTN_PIN GPIO_NUM_32
-#define RIGHT_BTN_PIN GPIO_NUM_33
+#define POWER_BTN_PIN   GPIO_NUM_4
+#define UP_BTN_PIN      GPIO_NUM_19
+#define DOWN_BTN_PIN    GPIO_NUM_18
+#define LEFT_BTN_PIN    GPIO_NUM_32
+#define RIGHT_BTN_PIN   GPIO_NUM_33
 
 // RTC_DATA_ATTR char rtcLinkDevAddress[10];
 
 // // EEPROM Settings struct;
 // ee_settings_t eeSettigs = {};
 
-EncButton<EB_TICK, POWER_BTN_PIN> BtnPwrLink; // просто кнопка <KEY>
-EncButton<EB_TICK, UP_BTN_PIN> BtnUp;         // просто кнопка <KEY>
-EncButton<EB_TICK, DOWN_BTN_PIN> BtnDwn;      // просто кнопка <KEY>
-EncButton<EB_TICK, LEFT_BTN_PIN> BtnLft;      // просто кнопка <KEY>
-EncButton<EB_TICK, RIGHT_BTN_PIN> BtnRght;    // просто кнопка <KEY>
+EncButton<EB_TICK, POWER_BTN_PIN>   BtnPwrLink; // Кнопка "ВКЛЮЧЕНИЯ/ОТКЛЮЧЕНИЯ" 
+EncButton<EB_TICK, UP_BTN_PIN>      BtnUp;      // Кнопка "ВПЕРЕД/ВВЕРХ" 
+EncButton<EB_TICK, DOWN_BTN_PIN>    BtnDwn;     // Кнопка "НАЗАД/ВНИЗ" 
+EncButton<EB_TICK, LEFT_BTN_PIN>    BtnLft;     // Кнопка "ВЛЕВО/ВПЕРЕД" 
+EncButton<EB_TICK, RIGHT_BTN_PIN>   BtnRght;    // Кнопка "ВПРАВО/НАЗАД" 
 
 WeDoHub_Client_t HubClient = WEDOHUB_CLIENT_SET_DEFAULT; //{false, false, "", ledSt_DISCONNECTED, 0, 0, 0, false, false};
 
@@ -60,12 +60,12 @@ class ClientCallbacks : public NimBLEClientCallbacks
 {
     void onConnect(NimBLEClient *pClient)
     {
-        Serial.println("Connected");
-        /** After connection we should change the parameters if we don't need fast response times.
-         *  These settings are 150ms interval, 0 latency, 450ms timout.
-         *  Timeout should be a multiple of the interval, minimum is 100ms.
-         *  I find a multiple of 3-5 * the interval works best for quick response/reconnect.
-         *  Min interval: 120 * 1.25ms = 150, Max interval: 120 * 1.25ms = 150, 0 latency, 60 * 10ms = 600ms timeout
+        log_i("Connected");
+        /** После подключения мы должны изменить параметры, если нам не нужно быстрое время отклика.
+          * Эти настройки: интервал 150 мс, задержка 0, тайм-аут 450 мс.
+          * Время ожидания должно быть кратно интервалу, минимум 100 мс.
+          * Я считаю, что интервал кратен 3-5 * этот интервал лучше всего подходит для быстрого ответа/повторного подключения.
+          * Минимальный интервал: 120 * 1,25 мс = 150, максимальный интервал: 120 * 1,25 мс = 150, 0 задержек, 60 * 10 мс = 600 мс тайм-аут
          */
         pClient->updateConnParams(120, 120, 0, 60);
 
@@ -75,17 +75,16 @@ class ClientCallbacks : public NimBLEClientCallbacks
 
     void onDisconnect(NimBLEClient *pClient)
     {
-        Serial.print(pClient->getPeerAddress().toString().c_str());
-        Serial.println(" Disconnected - Starting scan");
+        log_i("%s Disconnected - Starting scan", pClient->getPeerAddress().toString().c_str());
         NimBLEDevice::getScan()->start(scanTime, scanEndedCB);
 
         HubClient.DevConnected = false;
         HubClient.LedSysCurStatus = ledSt_DISCONNECTED;
     };
 
-    /** Called when the peripheral requests a change to the connection parameters.
-     *  Return true to accept and apply them or false to reject and keep
-     *  the currently used parameters. Default will return true.
+    /** Вызывается, когда периферийное устройство запрашивает изменение параметров подключения.
+      * Верните true, чтобы принять и применить их, или false, чтобы отклонить и сохранить
+      * текущие используемые параметры. По умолчанию будет возвращено значение true.
      */
     bool onConnParamsUpdateRequest(NimBLEClient *pClient, const ble_gap_upd_params *params)
     {
@@ -110,7 +109,7 @@ class ClientCallbacks : public NimBLEClientCallbacks
     };
 };
 
-/** Define a class to handle the callbacks when advertisments are received */
+/** Определите класс для обработки обратных вызовов при получении рекламы.*/
 class AdvertisedDeviceCallbacks : public NimBLEAdvertisedDeviceCallbacks
 {
     void onResult(NimBLEAdvertisedDevice *advertisedDevice)
@@ -154,13 +153,13 @@ class AdvertisedDeviceCallbacks : public NimBLEAdvertisedDeviceCallbacks
     };
 };
 
-/** Callback to process the results of the last scan or restart it */
+/** Обратный вызов для обработки результатов последнего сканирования или его перезапуска */
 void scanEndedCB(NimBLEScanResults results)
 {
-    Serial.println("Scan Ended");
+    log_i("Scan Ended (Stop)");
 }
 
-/** Create a single global instance of the callback class to be used by all clients */
+/** Создайте один глобальный экземпляр класса обратного вызова, который будет использоваться всеми клиентами.*/
 static ClientCallbacks clientCB;
 
 /** Handles the provisioning of clients and connects / interfaces with the server */
@@ -175,21 +174,20 @@ bool connectToServer()
          * второй аргумент в connect() для предотвращения обновления базы данных сервиса.
          * Это значительно экономит время и энергию.
          */
-
         pClient = NimBLEDevice::getClientByPeerAddress(advDevice->getAddress());
         if (pClient)
         {
+            log_i("[2] Wait stable Reconnection...(%d ms)",configLEGO_HUB_DEFAULT_STABLE_DELAY_TIMEOUT_MS);
+            /** Делаем небольшую паузу перед первым подключением - сервер только запущен,
+             * сразу возможны сбои при подключении (зависает звуковой сигнал хаба)**/
+            vTaskDelay(configLEGO_HUB_DEFAULT_STABLE_DELAY_TIMEOUT_MS);
+
             if (!pClient->connect(advDevice, false))
             {
-                Serial.println("Reconnect failed");
+                log_e("Reconnect failed");
                 return false;
             }
             log_i("Reconnected client");
-
-            log_i("[2] Wait stable connection...");
-            /** Делаем небольшую паузу перед первым подключением - сервер только запущен,
-             * сразу возможны сбои при подключении (зависает звуковой сигнал хаба)**/
-            delay(2000);
         }
         /** У нас еще нет клиента, который знает это устройство,
          * мы проверим отключенный клиент, который мы можем использовать.
@@ -203,10 +201,10 @@ bool connectToServer()
     /** Нет клиента для повторного использования? Создайте новый. */
     if (!pClient)
     {
-        log_i("[1] Wait stable connection...");
+        log_i("[1] Wait stable connection... (%d ms)", configLEGO_HUB_DEFAULT_STABLE_DELAY_TIMEOUT_MS);
         /** Делаем небольшую паузу перед первым подключением - сервер только запущен,
          * сразу возможны сбои при подключении (зависает звуковой сигнал хаба)**/
-        delay(2000);
+        vTaskDelay(configLEGO_HUB_DEFAULT_STABLE_DELAY_TIMEOUT_MS);
 
         if (NimBLEDevice::getClientListSize() >= NIMBLE_MAX_CONNECTIONS)
         {
@@ -219,20 +217,21 @@ bool connectToServer()
         log_i("New client created");
 
         pClient->setClientCallbacks(&clientCB, false);
-        /** Set initial connection parameters: These settings are 15ms interval, 0 latency, 120ms timout.
-         *  These settings are safe for 3 clients to connect reliably, can go faster if you have less
-         *  connections. Timeout should be a multiple of the interval, minimum is 100ms.
-         *  Min interval: 12 * 1.25ms = 15, Max interval: 12 * 1.25ms = 15, 0 latency, 51 * 10ms = 510ms timeout
+        /** Установите начальные параметры подключения: эти настройки: интервал 15 мс, задержка 0, тайм-аут 120 мс.
+          * Эти настройки безопасны для 3 клиентов для надежного подключения, могут работать быстрее, если у вас меньше
+          * соединения. Тайм-аут должен быть кратен интервалу, минимум 100 мс.
+          * Минимальный интервал: 12 * 1,25 мс = 15, максимальный интервал: 12 * 1,25 мс = 15, 0 задержек, 51 * 10 мс = 510 мс тайм-аут
          */
         pClient->setConnectionParams(12, 12, 0, 51);
-        /** Set how long we are willing to wait for the connection to complete (seconds), default is 30. */
+
+        /** Установите, как долго мы готовы ждать завершения соединения (в секундах), по умолчанию 30. */
         pClient->setConnectTimeout(5);
 
         if (!pClient->connect(advDevice))
         {
-            /** Created a client but failed to connect, don't need to keep it as it has no data */
+            /** Создал клиент, но не смог подключиться, не нужно его оставлять, так как в нем нет данных */
             NimBLEDevice::deleteClient(pClient);
-            log_i("Failed to connect, deleted client");
+            log_e("Failed to connect, deleted client");
             return false;
         }
     }
@@ -241,12 +240,12 @@ bool connectToServer()
     {
         if (!pClient->connect(advDevice))
         {
-            log_i("Failed to connect");
+            log_e("Failed to connect");
             return false;
         }
     }
 
-    return l2fp_ConnectToHub(pClient);
+    return l2fp_ClientInitHub(pClient);
 }
 
 void setup()
@@ -282,21 +281,21 @@ void setup()
     // Иинициализация конфигурации клиента, чтение из EEPROM необходимых настроек
     l2fp_InitClientConfig(&HubClient);
 
-    /** Initialize NimBLE, no device name spcified as we are not advertising */
+    /** Инициализируйте NimBLE, имя устройства не указано, так как мы не рекламируем*/
     NimBLEDevice::init("");
 
-    /** Set the IO capabilities of the device, each option will trigger a different pairing method.
-     *  BLE_HS_IO_KEYBOARD_ONLY    - Passkey pairing
-     *  BLE_HS_IO_DISPLAY_YESNO   - Numeric comparison pairing
-     *  BLE_HS_IO_NO_INPUT_OUTPUT - DEFAULT setting - just works pairing
+    /** Установите возможности ввода-вывода устройства, каждый параметр будет запускать другой метод сопряжения.
+      * BLE_HS_IO_DISPLAY_ONLY — сопряжение ключей доступа
+      * BLE_HS_IO_DISPLAY_YESNO — спаривание числового сравнения
+      * BLE_HS_IO_NO_INPUT_OUTPUT — настройка ПО УМОЛЧАНИЮ — работает только сопряжение
      */
-    // NimBLEDevice::setSecurityIOCap(BLE_HS_IO_KEYBOARD_ONLY); // use passkey
-    // NimBLEDevice::setSecurityIOCap(BLE_HS_IO_DISPLAY_YESNO); //use numeric comparison
+    //NimBLEDevice::setSecurityIOCap(BLE_HS_IO_DISPLAY_ONLY); // использовать пароль
+    //NimBLEDevice::setSecurityIOCap(BLE_HS_IO_DISPLAY_YESNO); // использовать числовое сравнение
 
-    /** 2 different ways to set security - both calls achieve the same result.
-     *  no bonding, no man in the middle protection, secure connections.
+    /** 2 разных способа установить безопасность - оба вызова достигают одного и того же результата.
+      * без склеивания, без защиты «человек посередине», надежные соединения.
      *
-     *  These are the default values, only shown here for demonstration.
+     *  Это значения по умолчанию, показанные здесь только для демонстрации.
      */
     // NimBLEDevice::setSecurityAuth(false, false, true);
     NimBLEDevice::setSecurityAuth(/*BLE_SM_PAIR_AUTHREQ_BOND | BLE_SM_PAIR_AUTHREQ_MITM |*/ BLE_SM_PAIR_AUTHREQ_SC);
@@ -321,12 +320,12 @@ void setup()
     pScan->setInterval(45);
     pScan->setWindow(15);
 
-    /** Active scan will gather scan response data from advertisers
-     *  but will use more energy from both devices
+    /** Активное сканирование будет собирать данные ответов на сканирование от рекламодателей, 
+     * но будет потреблять больше энергии от обоих устройств.
      */
     pScan->setActiveScan(true);
-    /** Start scanning for advertisers for the scan time specified (in seconds) 0 = forever
-     *  Optional callback for when scanning stops.
+    /** Начать сканирование рекламодателей на указанное время сканирования (в секундах) 0 = навсегда
+     *  Необязательный обратный вызов для остановки сканирования.
      */
     pScan->start(scanTime, scanEndedCB);
 
@@ -339,13 +338,17 @@ void setup()
     {
         log_i("BtnActQueue Create OK");
         xTaskCreatePinnedToCore(Task_Led, "Task_Led", 2048, (void *)&HubClient, 5, NULL, ARDUINO_RUNNING_CORE);
-        xTaskCreatePinnedToCore(Task_Main, "Task_Main", 8192, (void *)&HubClient, 4, NULL, ARDUINO_RUNNING_CORE);
-        xTaskCreatePinnedToCore(Task_Buttons, "Task_Buttons", 8192, (void *)&HubClient, 3, NULL, ARDUINO_RUNNING_CORE);
+        // xTaskCreatePinnedToCore(Task_Main, "Task_Main", 8192, (void *)&HubClient, 4, NULL, ARDUINO_RUNNING_CORE);
+        // xTaskCreatePinnedToCore(Task_Buttons, "Task_Buttons", 8192, (void *)&HubClient, 3, NULL, ARDUINO_RUNNING_CORE);
+
+        xTaskCreatePinnedToCore(Task_Main, "Task_Main", 4092, (void *)&HubClient, 4, NULL, ARDUINO_RUNNING_CORE);
+        xTaskCreatePinnedToCore(Task_Buttons, "Task_Buttons", 4092, (void *)&HubClient, 3, NULL, ARDUINO_RUNNING_CORE);
     }
 }
 
 void loop()
 {
+    // Use FreeRTOS, The whole program is divided into tasks
 }
 
 // FreeRTOS Task's
@@ -380,7 +383,6 @@ static void Task_Main(void *pvParameters)
                         result = l2fp_SetTiltSensor(devParam->PortNumTitleSensor);
                         // log_i("Update TiltSensor (port %d) %s", devParam->PortNumTitleSensor, result?"OK":"FAIL");
                     }
-
                     // Проверяем подключен ли датчик препядствий
                     if (devParam->PortNumDetectSensor > 0)
                     {
@@ -394,6 +396,7 @@ static void Task_Main(void *pvParameters)
                 if (devParam->PortNumDetectSensor > 0)
                     l2fp_DetectSensorAction();
             }
+            vTaskDelay(10);
         }
 
         doConnect = false;
@@ -430,54 +433,80 @@ static void Task_Led(void *pvParameters)
 
     for (;;)
     {
+
         switch (devParam->LedSysCurStatus)
         {
-        case ledSt_CONNECTED:
-            if (!ConStatusFlag)
-            {
-                LedSysOn();
-                ~ConStatusFlag;
-            }
-            /** Обязательная задержка для работы других задач
-             * (никакие условия в это задачи не выполняются) **/
-            vTaskDelay(250);
+            case ledSt_CONNECTING_INIT_HUB:
+                LedSysToogle();
+                vTaskDelay(250);
             break;
 
-        case ledSt_DISCONNECTED:
-            LedSysToogle();
-            vTaskDelay(500);
+            case ledSt_CONNECTED:
+                if (!ConStatusFlag)
+                {
+                    LedSysOn();
+                    ~ConStatusFlag;
+                }
 
-            if (ConStatusFlag)
-                ~ConStatusFlag;
-            break;
+                // Если мы подключены к хабу, то ысветодиод горит не прерывно
+                /** Обязательная задержка для работы других задач
+                 * (никакие условия в это задачи не выполняются) 
+                 * иначе задача зависнет а вместе с ней остальные потоки**/
+                vTaskDelay(250);
+        
+                break;
 
-        case ledSt_SEARCH_CONTROLLER:
-            devParam->LedSysCurStatus = ledSt_CONNECTED;
-            for (uint i = 0; i < 8; i++)
-            {
+            case ledSt_DISCONNECTED:
+                LedSysToogle();
+                vTaskDelay(500);
+
+                if (ConStatusFlag)
+                    ~ConStatusFlag;
+                break;
+
+            case ledSt_SEARCH_CONTROLLER:
+                devParam->LedSysCurStatus = ledSt_CONNECTED;
+                for (uint i = 0; i < 8; i++)
+                {
+                    LedSysOff();
+                    vTaskDelay(100);
+                    LedSysOn();
+                    vTaskDelay(50);
+                }
+                break;
+
+            case ledSt_HOLD_PWR_BUTTON:
                 LedSysOff();
                 vTaskDelay(100);
                 LedSysOn();
                 vTaskDelay(50);
-            }
-            break;
-
-        case ledSt_LINK_HUB_ADDR_ACTION:
-            devParam->LedSysCurStatus = ledSt_CONNECTED;
-            for (uint i = 0; i < 4; i++)
-            {
                 LedSysOff();
-                vTaskDelay(50);
-                LedSysOn();
-                vTaskDelay(25);
-            }
-            break;
 
-        default:
-            /** Обязательная задержка для работы других задач
-             * (никакие условия в это задачи не выполняются) **/
-            vTaskDelay(250);
-            break;
+                LedSysOff();
+                vTaskDelay(100);
+                LedSysOn();
+                vTaskDelay(50);
+                LedSysOff();
+
+                vTaskDelay(250);
+                break;
+
+            case ledSt_LINK_HUB_ADDR_ACTION:
+                devParam->LedSysCurStatus = ledSt_CONNECTED;
+                for (uint i = 0; i < 4; i++)
+                {
+                    LedSysOff();
+                    vTaskDelay(50);
+                    LedSysOn();
+                    vTaskDelay(25);
+                }
+                break;
+
+            default:
+                /** Обязательная задержка для работы других задач
+                 * (никакие условия в это задачи не выполняются) **/
+                vTaskDelay(250);
+                break;
         }
     }
 }
@@ -489,6 +518,7 @@ static void Task_Buttons(void *pvParameters)
 
     MotorTransCmd_t qMotorSendCmd;
     static bool drvStopFlag = false;
+    static uint8_t lastLedState = ledSt_DISCONNECTED;
     // memset(qBtnAction, 0, sizeof(qBtnAction));
     BtnPwrLink.setHoldTimeout(2000);
 
@@ -506,6 +536,24 @@ static void Task_Buttons(void *pvParameters)
         BtnDwn.tick();
         BtnLft.tick();
         BtnRght.tick();
+
+        if(BtnPwrLink.press())
+        {
+            lastLedState = devParam->LedSysCurStatus;
+            devParam->LedSysCurStatus = ledSt_HOLD_PWR_BUTTON;
+        }
+        else if(BtnPwrLink.release())
+        {
+            devParam->LedSysCurStatus = lastLedState;
+        }
+        
+        if (BtnPwrLink.held())
+        {
+            log_i("Held BtnPwrLink -> Going to sleep now");
+            // Go to sleep now
+            vTaskDelay(1000);
+            esp_deep_sleep_start();
+        }
 
         // if (BtnPwrLink.click())
         //     log_i("Click BtnPwrLink");
@@ -534,17 +582,15 @@ static void Task_Buttons(void *pvParameters)
                 if (devParam->PortNumDetectSensor > 0)
                 {
                     // Обработка нажатия кнопки "ВПЕРЁД"
-                    if (BtnUp.press() && (l2fp_IsPermissibleDistance() == true))
+                    if (BtnUp.press() && l2fp_IsPermissibleDistance())
                     {
-                        log_i("(BtnUp.press() && (l2fp_IsPermissibleDistance() == true))");
                         qMotorSendCmd.driveNum = 1;
                         qMotorSendCmd.rotSpeedDir = devParam->eeConstConfig.drvRightVal;
                         xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
                     }
                     // Обработка удержания кнопки "ВПЕРЁД"
-                    else if (BtnUp.held() && (l2fp_IsPermissibleDistance() == true))
+                    else if (BtnUp.held() && l2fp_IsPermissibleDistance())
                     {
-                        log_i("(BtnUp.held() && (l2fp_IsPermissibleDistance() == true))");
                         qMotorSendCmd.driveNum = 1;
                         qMotorSendCmd.rotSpeedDir = devParam->eeConstConfig.drvRightDoubleVal;
                         xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
@@ -552,12 +598,10 @@ static void Task_Buttons(void *pvParameters)
                     // Если дистанция меньше нормы -> препядствие обнаружено, останавливаемся
                     if(l2fp_CriticalDistance())
                     {
-                        log_i("(l2fp_DistanceStop())");
                         qMotorSendCmd.driveNum = 1;
                         qMotorSendCmd.rotSpeedDir = MSD_STOP;
                         xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
                     }
-
                 }
                 else //(devParam->PortNumDetectSensor > 0)
                 {
@@ -603,43 +647,141 @@ static void Task_Buttons(void *pvParameters)
                 }
             }
 
-            // Проверяем подключен ли двигатель к порту 2
-            if (devParam->DriveTwoEnabled)
+            // Проверяем подключен ли датчик препядствий
+            if (devParam->PortNumDetectSensor > 0)
             {
-                // Right/Left Buttons commands
-                if (BtnRght.press())
-                {
-                    qMotorSendCmd.driveNum = 2;
-                    qMotorSendCmd.rotSpeedDir = devParam->eeConstConfig.drvRightVal;
-                    xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
-                }
-                else if (BtnRght.held())
-                {
-                    qMotorSendCmd.driveNum = 2;
-                    qMotorSendCmd.rotSpeedDir = devParam->eeConstConfig.drvRightDoubleVal;
-                    xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
-                }
-                else if (BtnLft.press())
+                // Обработка нажатия кнопки "ВПРАВО"
+                if (BtnLft.press() && l2fp_IsPermissibleDistance())
                 {
                     qMotorSendCmd.driveNum = 2;
                     qMotorSendCmd.rotSpeedDir = devParam->eeConstConfig.drvLeftVal;
                     xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
                 }
-                else if (BtnLft.held())
+                // Обработка удержания кнопки "ВПРАВО"
+                else if (BtnLft.held() && l2fp_IsPermissibleDistance())
                 {
                     qMotorSendCmd.driveNum = 2;
                     qMotorSendCmd.rotSpeedDir = devParam->eeConstConfig.drvLeftDoubleVal;
                     xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
                 }
-                else if (
-                    (BtnRght.release() && !BtnLft.state()) ||
-                    (BtnLft.release() && !BtnRght.state()))
+                // Если дистанция меньше нормы -> препядствие обнаружено, останавливаемся
+                if(l2fp_CriticalDistance())
                 {
                     qMotorSendCmd.driveNum = 2;
                     qMotorSendCmd.rotSpeedDir = MSD_STOP;
                     xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
                 }
             }
+            else //(devParam->PortNumDetectSensor > 0)
+            {
+                // Обработка нажатия кнопки "ВПРАВО"
+                if (BtnLft.press())
+                {
+                    qMotorSendCmd.driveNum = 2;
+                    qMotorSendCmd.rotSpeedDir = devParam->eeConstConfig.drvLeftVal;
+                    xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
+                }
+                else
+                // Обработка удержания кнопки "ВПРАВО"
+                if (BtnLft.held())
+                {
+                    qMotorSendCmd.driveNum = 2;
+                    qMotorSendCmd.rotSpeedDir = devParam->eeConstConfig.drvLeftDoubleVal;
+                    xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
+                }
+            } // (devParam->PortNumDetectSensor > 0)
+
+            // Обработка нажатия кнопки "ВЛЕВО"
+            if (BtnRght.press())
+            {
+                qMotorSendCmd.driveNum = 2;
+                qMotorSendCmd.rotSpeedDir = devParam->eeConstConfig.drvRightVal;
+                xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
+            }
+            // Обработка удержания кнопки "ВЛЕВО"
+            else if (BtnRght.held())
+            {
+                qMotorSendCmd.driveNum = 2;
+                qMotorSendCmd.rotSpeedDir = devParam->eeConstConfig.drvRightDoubleVal;
+                xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
+            }
+            else if (
+                (BtnRght.release() && !BtnLft.state()) ||
+                (BtnLft.release() && !BtnRght.state())
+            )
+            {
+                qMotorSendCmd.driveNum = 2;
+                qMotorSendCmd.rotSpeedDir = MSD_STOP;
+                xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
+            }
+        
+
+            // // Проверяем подключен ли двигатель к порту 2
+            // if (devParam->DriveTwoEnabled)
+            // {
+            //     // Проверяем подключен ли датчик препядствий
+            //     if (devParam->PortNumDetectSensor > 0)
+            //     {
+            //         // Обработка нажатия кнопки "ВПРАВО"
+            //         if (BtnRght.press() && l2fp_IsPermissibleDistance())
+            //         {
+            //             qMotorSendCmd.driveNum = 2;
+            //             qMotorSendCmd.rotSpeedDir = devParam->eeConstConfig.drvRightVal;
+            //             xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
+            //         }
+            //         // Обработка удержания кнопки "ВПРАВО"
+            //         else if (BtnRght.held() && l2fp_IsPermissibleDistance())
+            //         {
+            //             qMotorSendCmd.driveNum = 2;
+            //             qMotorSendCmd.rotSpeedDir = devParam->eeConstConfig.drvRightDoubleVal;
+            //             xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
+            //         }
+            //         // Если дистанция меньше нормы -> препядствие обнаружено, останавливаемся
+            //         if(l2fp_CriticalDistance())
+            //         {
+            //             qMotorSendCmd.driveNum = 2;
+            //             qMotorSendCmd.rotSpeedDir = MSD_STOP;
+            //             xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
+            //         }
+            //     }
+            //     else // (devParam->PortNumDetectSensor > 0)
+            //     {
+            //         // Right/Left Buttons commands
+            //         if (BtnRght.press())
+            //         {
+            //             qMotorSendCmd.driveNum = 2;
+            //             qMotorSendCmd.rotSpeedDir = devParam->eeConstConfig.drvRightVal;
+            //             xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
+            //         }
+            //         else if (BtnRght.held())
+            //         {
+            //             qMotorSendCmd.driveNum = 2;
+            //             qMotorSendCmd.rotSpeedDir = devParam->eeConstConfig.drvRightDoubleVal;
+            //             xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
+            //         }
+            //     } // else (devParam->PortNumDetectSensor > 0)
+
+            //     if (BtnLft.press())
+            //     {
+            //         qMotorSendCmd.driveNum = 2;
+            //         qMotorSendCmd.rotSpeedDir = devParam->eeConstConfig.drvLeftVal;
+            //         xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
+            //     }
+            //     else if (BtnLft.held())
+            //     {
+            //         qMotorSendCmd.driveNum = 2;
+            //         qMotorSendCmd.rotSpeedDir = devParam->eeConstConfig.drvLeftDoubleVal;
+            //         xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
+            //     }
+            //     else if (
+            //         (BtnRght.release() && !BtnLft.state()) ||
+            //         (BtnLft.release() && !BtnRght.state()))
+            //     {
+            //         qMotorSendCmd.driveNum = 2;
+            //         qMotorSendCmd.rotSpeedDir = MSD_STOP;
+            //         xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
+            //     }
+            // }
 
             if (BtnPwrLink.hasClicks(3))
             {
@@ -649,14 +791,7 @@ static void Task_Buttons(void *pvParameters)
             }
         } // if (devParam->DevConnected)
 
-        if (BtnPwrLink.held())
-        {
-            log_i("Held BtnPwrLink");
-            // Go to sleep now
-            log_i("Going to sleep now");
-            vTaskDelay(1000);
-            esp_deep_sleep_start();
-        }
+
 
         vTaskDelay(10);
     }

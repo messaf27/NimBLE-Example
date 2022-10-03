@@ -106,6 +106,7 @@ bool l2fp_InitClientConfig(WeDoHub_Client_t *dtClient)
     hubClientData->eeConstConfig.drvLeftDoubleVal = eeSettigs.eeMotorConfig[1];
     hubClientData->eeConstConfig.drvRightVal = eeSettigs.eeMotorConfig[2];
     hubClientData->eeConstConfig.drvRightDoubleVal = eeSettigs.eeMotorConfig[3];
+    hubClientData->DistanceCurrentValue = configLEGO_HUB_DEFAULT_DETECT_SENS_MAX_VALUE; // Для начальной инициализации
     
     return true;
 }
@@ -144,7 +145,7 @@ bool l2fp_SetDefaultEESettings(void)
     eeSettigs.eeMotorConfig[1] = MSD_SET_LEFT_DOUBLE;
     eeSettigs.eeMotorConfig[2] = MSD_SET_RIGHT;
     eeSettigs.eeMotorConfig[3] = MSD_SET_RIGHT_DOUBLE;
-    eeSettigs.eeDetectSensorStopValue = configLEGO_HUB_DEFAULTDETECT_SENS_STOP_VALUE;
+    eeSettigs.eeDetectSensorStopValue = configLEGO_HUB_DEFAULT_DETECT_SENS_STOP_VALUE;
 
     return l2fp_SaveEESettings();
 }
@@ -245,10 +246,12 @@ bool l2fp_isMainService(NimBLEAdvertisedDevice *advertisedDevice)
     return advertisedDevice->isAdvertisingService(LEGO_WeDo_advertisingUUID);
 }
 
-bool l2fp_ConnectToHub(NimBLEClient *pClient)
+bool l2fp_ClientInitHub(NimBLEClient *pClient)
 {
     log_i("Connected to: %s", pClient->getPeerAddress().toString().c_str());
     log_i("RSSI: %d", pClient->getRssi());
+
+    hubClientData->LedSysCurStatus = ledSt_CONNECTING_INIT_HUB;
 
     /** Now we can read/write/subscribe the charateristics of the services we are interested in */
     NimBLERemoteService *pSvc = nullptr;
@@ -312,6 +315,9 @@ bool l2fp_ConnectToHub(NimBLEClient *pClient)
     }       
     log_i("Found our characteristic: %s", LEGOOutput.toString().c_str());
 
+    // Индикация (проверка) инициализации портов на выход.
+    l2fp_WriteIndexColor(LEGO_COLOR_ORANGE);
+
     pLEGOInput = pLEGO->getCharacteristic(LEGOInput);
     if (pLEGOInput == nullptr) {
         log_i("Failed to find our characteristic UUID: %d", LEGOInput.toString().c_str());
@@ -356,12 +362,13 @@ bool l2fp_ConnectToHub(NimBLEClient *pClient)
     }
     log_i("Found our characteristic: %s", LEGOSensor.toString().c_str());
 
-    if(pLEGOSensor->canNotify()) {
-        if(!pLEGOSensor->subscribe(true, l2fp_notifyCB)) {
+    if(pLEGOSensor->canNotify()) 
+    {
+        if(!pLEGOSensor->subscribe(true, l2fp_notifyCB)) 
             return false;
-        }
+
         log_i("Subscribe Sensor Notify");
-    }
+    }    
 
     log_i("Done with this device!");
     return true;

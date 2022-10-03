@@ -4,12 +4,15 @@
 #include "Arduino.h"
 #include <NimBLEDevice.h>
 
-#define configLEGO_HUB_DEFAULT_ADDRES                   "ff:ff:ff:ff:ff:ff"
-#define configLEGO_HUB_DEFAULT_ADDRES_STR_SIZE          17
-#define configLEGO_HUB_DEFAULT_NAME_STR                 "LPF2 Smart Hub"
-#define configLEGO_HUB_DEFAULTDETECT_SENS_STOP_VALUE    (5)
-#define configLEGO_HUB_SENSOR_POLL_PERIOD_MS            (1000)
-#define configLEGO_HUB_TIMEOUT_MS_POWER_ON              (750)
+#define configLEGO_HUB_DEFAULT_ADDRES                       "ff:ff:ff:ff:ff:ff"
+#define configLEGO_HUB_DEFAULT_ADDRES_STR_SIZE              17
+#define configLEGO_HUB_DEFAULT_NAME_STR                     "LPF2 Smart Hub"
+#define configLEGO_HUB_DEFAULT_STABLE_DELAY_TIMEOUT_MS      (1750)
+#define configLEGO_HUB_DEFAULT_DETECT_SENS_STOP_VALUE       (5)
+#define configLEGO_HUB_DEFAULT_DETECT_SENS_MAX_VALUE        (10)
+#define configLEGO_HUB_SENSOR_POLL_PERIOD_MS                (1000)
+#define configLEGO_HUB_TIMEOUT_MS_POWER_ON                  (750)
+
 
 typedef struct{
     int drvLeftVal;
@@ -50,9 +53,11 @@ enum LedSysBlinkStatus
 {
     ledSt_DISCONNECTED,
     ledSt_DISCONNECTED_BAT_LOW,
+    ledSt_CONNECTING_INIT_HUB,
     ledSt_CONNECTED,
     ledSt_CONNECTED_BAT_LOW,
     ledSt_SEARCH_CONTROLLER,
+    ledSt_HOLD_PWR_BUTTON,
     ledSt_LINK_HUB_ADDR_ACTION
 };
 
@@ -126,7 +131,7 @@ bool l2fp_LinkDevAddress(String linkAddr);
 
 bool l2fp_InitClientConfig(WeDoHub_Client_t *dtClient);
 bool l2fp_isMainService(NimBLEAdvertisedDevice *advertisedDevice);
-bool l2fp_ConnectToHub(NimBLEClient *pClient);
+bool l2fp_ClientInitHub(NimBLEClient *pClient);
 bool l2fp_WriteMotorCommand(uint8_t wedo_port,int wedo_speed);
 bool l2fp_WriteIndexColor(uint8_t color);
 bool l2fp_WriteRGB(uint8_t red, uint8_t green, uint8_t blue);
