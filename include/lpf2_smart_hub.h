@@ -4,9 +4,9 @@
 #include "Arduino.h"
 #include <NimBLEDevice.h>
 
+#define configLEGO_HUB_DEFAULT_NAME_STR                     "LPF2 Smart Hub"
 #define configLEGO_HUB_DEFAULT_ADDRES                       "ff:ff:ff:ff:ff:ff"
 #define configLEGO_HUB_DEFAULT_ADDRES_STR_SIZE              17
-#define configLEGO_HUB_DEFAULT_NAME_STR                     "LPF2 Smart Hub"
 #define configLEGO_HUB_DEFAULT_STABLE_DELAY_TIMEOUT_MS      (1750)
 #define configLEGO_HUB_DEFAULT_DETECT_SENS_STOP_VALUE       (5)
 #define configLEGO_HUB_DEFAULT_DETECT_SENS_MAX_VALUE        (10)
@@ -14,12 +14,14 @@
 #define configLEGO_HUB_TIMEOUT_MS_POWER_ON                  (750)
 
 
-typedef struct{
+typedef struct
+{
     int drvLeftVal;
     int drvLeftDoubleVal;
     int drvRightVal;
     int drvRightDoubleVal;
     int detectSensorStopValue;
+    
 }eeConstVal_t;
 
 typedef struct

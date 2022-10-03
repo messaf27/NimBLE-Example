@@ -329,6 +329,7 @@ void setup()
      */
     pScan->start(scanTime, scanEndedCB);
 
+    // FreeRTOS Init Task's and Queue's
     BtnActQueue = xQueueCreate(4, sizeof(MotorTransCmd_t));
     if (BtnActQueue == NULL) // Queue not created
     {
@@ -337,12 +338,20 @@ void setup()
     else
     {
         log_i("BtnActQueue Create OK");
-        xTaskCreatePinnedToCore(Task_Led, "Task_Led", 2048, (void *)&HubClient, 5, NULL, ARDUINO_RUNNING_CORE);
-        // xTaskCreatePinnedToCore(Task_Main, "Task_Main", 8192, (void *)&HubClient, 4, NULL, ARDUINO_RUNNING_CORE);
-        // xTaskCreatePinnedToCore(Task_Buttons, "Task_Buttons", 8192, (void *)&HubClient, 3, NULL, ARDUINO_RUNNING_CORE);
 
-        xTaskCreatePinnedToCore(Task_Main, "Task_Main", 4092, (void *)&HubClient, 4, NULL, ARDUINO_RUNNING_CORE);
-        xTaskCreatePinnedToCore(Task_Buttons, "Task_Buttons", 4092, (void *)&HubClient, 3, NULL, ARDUINO_RUNNING_CORE);
+        BaseType_t createResult = pdFAIL;
+
+        createResult = xTaskCreatePinnedToCore(Task_Led, "Task_Led", 2048, (void *)&HubClient, 5, NULL, ARDUINO_RUNNING_CORE);
+        if(createResult == pdFAIL) 
+            log_e("Fail create Task_Led!");
+
+        createResult = xTaskCreatePinnedToCore(Task_Main, "Task_Main", 4092, (void *)&HubClient, 4, NULL, ARDUINO_RUNNING_CORE); // 8192
+        if(createResult == pdFAIL) 
+            log_e("Fail create Task_Main!"); 
+
+        createResult = xTaskCreatePinnedToCore(Task_Buttons, "Task_Buttons", 4092, (void *)&HubClient, 3, NULL, ARDUINO_RUNNING_CORE); // 8192
+        if(createResult == pdFAIL) 
+            log_e("Fail create Task_Buttons!"); 
     }
 }
 
@@ -714,74 +723,6 @@ static void Task_Buttons(void *pvParameters)
                 qMotorSendCmd.rotSpeedDir = MSD_STOP;
                 xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
             }
-        
-
-            // // Проверяем подключен ли двигатель к порту 2
-            // if (devParam->DriveTwoEnabled)
-            // {
-            //     // Проверяем подключен ли датчик препядствий
-            //     if (devParam->PortNumDetectSensor > 0)
-            //     {
-            //         // Обработка нажатия кнопки "ВПРАВО"
-            //         if (BtnRght.press() && l2fp_IsPermissibleDistance())
-            //         {
-            //             qMotorSendCmd.driveNum = 2;
-            //             qMotorSendCmd.rotSpeedDir = devParam->eeConstConfig.drvRightVal;
-            //             xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
-            //         }
-            //         // Обработка удержания кнопки "ВПРАВО"
-            //         else if (BtnRght.held() && l2fp_IsPermissibleDistance())
-            //         {
-            //             qMotorSendCmd.driveNum = 2;
-            //             qMotorSendCmd.rotSpeedDir = devParam->eeConstConfig.drvRightDoubleVal;
-            //             xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
-            //         }
-            //         // Если дистанция меньше нормы -> препядствие обнаружено, останавливаемся
-            //         if(l2fp_CriticalDistance())
-            //         {
-            //             qMotorSendCmd.driveNum = 2;
-            //             qMotorSendCmd.rotSpeedDir = MSD_STOP;
-            //             xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
-            //         }
-            //     }
-            //     else // (devParam->PortNumDetectSensor > 0)
-            //     {
-            //         // Right/Left Buttons commands
-            //         if (BtnRght.press())
-            //         {
-            //             qMotorSendCmd.driveNum = 2;
-            //             qMotorSendCmd.rotSpeedDir = devParam->eeConstConfig.drvRightVal;
-            //             xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
-            //         }
-            //         else if (BtnRght.held())
-            //         {
-            //             qMotorSendCmd.driveNum = 2;
-            //             qMotorSendCmd.rotSpeedDir = devParam->eeConstConfig.drvRightDoubleVal;
-            //             xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
-            //         }
-            //     } // else (devParam->PortNumDetectSensor > 0)
-
-            //     if (BtnLft.press())
-            //     {
-            //         qMotorSendCmd.driveNum = 2;
-            //         qMotorSendCmd.rotSpeedDir = devParam->eeConstConfig.drvLeftVal;
-            //         xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
-            //     }
-            //     else if (BtnLft.held())
-            //     {
-            //         qMotorSendCmd.driveNum = 2;
-            //         qMotorSendCmd.rotSpeedDir = devParam->eeConstConfig.drvLeftDoubleVal;
-            //         xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
-            //     }
-            //     else if (
-            //         (BtnRght.release() && !BtnLft.state()) ||
-            //         (BtnLft.release() && !BtnRght.state()))
-            //     {
-            //         qMotorSendCmd.driveNum = 2;
-            //         qMotorSendCmd.rotSpeedDir = MSD_STOP;
-            //         xQueueSend(BtnActQueue, &qMotorSendCmd, portMAX_DELAY);
-            //     }
-            // }
 
             if (BtnPwrLink.hasClicks(3))
             {
