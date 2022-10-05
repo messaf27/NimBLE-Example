@@ -1,6 +1,10 @@
 #include <Arduino.h>
 #include <NimBLEDevice.h>
 #include <EncButton.h>
+
+// For WiFi Configuration Mode
+#include "WiFiConfigurator.h"
+
 #include "esp32-hal-log.h"
 /**
     log_e – ошибка (минимальная)
@@ -25,18 +29,13 @@
 #define LEFT_BTN_PIN    GPIO_NUM_32
 #define RIGHT_BTN_PIN   GPIO_NUM_33
 
-// RTC_DATA_ATTR char rtcLinkDevAddress[10];
-
-// // EEPROM Settings struct;
-// ee_settings_t eeSettigs = {};
-
 EncButton<EB_TICK, POWER_BTN_PIN>   BtnPwrLink; // Кнопка "ВКЛЮЧЕНИЯ/ОТКЛЮЧЕНИЯ" 
 EncButton<EB_TICK, UP_BTN_PIN>      BtnUp;      // Кнопка "ВПЕРЕД/ВВЕРХ" 
 EncButton<EB_TICK, DOWN_BTN_PIN>    BtnDwn;     // Кнопка "НАЗАД/ВНИЗ" 
 EncButton<EB_TICK, LEFT_BTN_PIN>    BtnLft;     // Кнопка "ВЛЕВО/ВПЕРЕД" 
 EncButton<EB_TICK, RIGHT_BTN_PIN>   BtnRght;    // Кнопка "ВПРАВО/НАЗАД" 
 
-WeDoHub_Client_t HubClient = WEDOHUB_CLIENT_SET_DEFAULT; //{false, false, "", ledSt_DISCONNECTED, 0, 0, 0, false, false};
+WeDoHub_Client_t HubClient = WEDOHUB_CLIENT_SET_DEFAULT; 
 
 void scanEndedCB(NimBLEScanResults results);
 
@@ -46,6 +45,7 @@ String DevCurrentName = "";
 static NimBLEAdvertisedDevice *advDevice;
 static bool doConnect = false;
 static uint32_t scanTime = 0; /** 0 = scan forever */
+static bool WiFiCinfigEnable = false;
 
 /** FreeRTOS Defines **/
 xQueueHandle BtnActQueue;
@@ -258,6 +258,8 @@ void setup()
     pinMode(POWER_BTN_PIN, INPUT_PULLUP);
     esp_sleep_enable_ext0_wakeup(POWER_BTN_PIN, 0); // 1 = High, 0 = Low
 
+    pinMode(UP_BTN_PIN, INPUT_PULLUP); // For WiFi Configuration Detect
+
     while (digitalRead(POWER_BTN_PIN) == LOW)
     {
         if (millis() >= configLEGO_HUB_TIMEOUT_MS_POWER_ON)
@@ -274,6 +276,11 @@ void setup()
         vTaskDelay(1000);
         esp_deep_sleep_start();
         log_i("This will never be printed");
+    }
+    else if(digitalRead(UP_BTN_PIN) == LOW)
+    {
+        WiFiCinfigEnable = true;
+        log_i("WiFi Config Enable");
     }
 
     log_i("Starting NimBLE Client, begin init... (CoreID: %d)", xPortGetCoreID());
@@ -354,6 +361,11 @@ void setup()
         createResult = xTaskCreatePinnedToCore(Task_Buttons, "Task_Buttons", 4092, (void *)&HubClient, 3, NULL, ARDUINO_RUNNING_CORE); // 8192
         if(createResult == pdFAIL) 
             log_e("Fail create Task_Buttons!"); 
+    }
+
+    if(WiFiCinfigEnable)
+    {
+        WiFiConfig_Init();
     }
 }
 
