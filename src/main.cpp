@@ -365,7 +365,7 @@ void setup()
 
     if(WiFiCinfigEnable)
     {
-        WiFiConfig_Init();
+        WiFiConfig_Init(&HubClient.eeConstConfig);
     }
 }
 

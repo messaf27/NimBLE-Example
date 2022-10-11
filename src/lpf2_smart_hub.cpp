@@ -107,6 +107,7 @@ bool l2fp_InitClientConfig(WeDoHub_Client_t *dtClient)
     hubClientData->eeConstConfig.drvRightVal = eeSettigs.eeMotorConfig[2];
     hubClientData->eeConstConfig.drvRightDoubleVal = eeSettigs.eeMotorConfig[3];
     hubClientData->DistanceCurrentValue = configLEGO_HUB_DEFAULT_DETECT_SENS_MAX_VALUE; // Для начальной инициализации
+    hubClientData->eeConstConfig.detectSensorStopValue = eeSettigs.eeDetectSensorStopValue;
     
     return true;
 }
@@ -118,9 +119,13 @@ bool l2fp_ReadEESettings(void)
     ret = EEPROM.begin(512);
     EEPROM.get(0, eeSettigs);
     EEPROM.end();
+
+    log_i("Read EE Config:");
+    log_i("EE-Settings.eeSaveCounter = %ld", eeSettigs.eeSaveCounter);
     log_i("EE-Settings.eeLinkDevAddress = %s",eeSettigs.eeLinkDevAddress);
     log_i("EE-Settings.eeMotorConfig = [%d,%d,%d,%d]", eeSettigs.eeMotorConfig[0], eeSettigs.eeMotorConfig[1], eeSettigs.eeMotorConfig[2], eeSettigs.eeMotorConfig[3]);
-    log_i("EE-Settings.eeSaveCounter = %ld", eeSettigs.eeSaveCounter);
+    log_i("EE-Settings.eeDetectSensorStopValue = %ld", eeSettigs.eeDetectSensorStopValue);
+
     return ret;
 }
 
@@ -128,10 +133,23 @@ bool l2fp_SaveEESettings(void)
 {
     bool ret = false;
 
-    ret = EEPROM.begin(512);
+    eeSettigs.eeDetectSensorStopValue = hubClientData->eeConstConfig.detectSensorStopValue;
+    eeSettigs.eeMotorConfig[0] = hubClientData->eeConstConfig.drvLeftVal;
+    eeSettigs.eeMotorConfig[1] = hubClientData->eeConstConfig.drvLeftDoubleVal;
+    eeSettigs.eeMotorConfig[2] = hubClientData->eeConstConfig.drvRightVal;
+    eeSettigs.eeMotorConfig[3] = hubClientData->eeConstConfig.drvRightDoubleVal;
+
+    log_i("Save EE Config:");
+    log_i("EE-Settings.eeSaveCounter = %ld", eeSettigs.eeSaveCounter);
+    log_i("EE-Settings.eeLinkDevAddress = %s",eeSettigs.eeLinkDevAddress);
+    log_i("EE-Settings.eeMotorConfig = [%d,%d,%d,%d]", eeSettigs.eeMotorConfig[0], eeSettigs.eeMotorConfig[1], eeSettigs.eeMotorConfig[2], eeSettigs.eeMotorConfig[3]);
+    log_i("EE-Settings.eeDetectSensorStopValue = %ld", eeSettigs.eeDetectSensorStopValue);
+
+
+    EEPROM.begin(512);
     eeSettigs.eeSaveCounter++;
     EEPROM.put(0, eeSettigs);
-    EEPROM.commit();
+    ret = EEPROM.commit();
     EEPROM.end();
     
     return ret;
